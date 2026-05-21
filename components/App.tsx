@@ -8,9 +8,9 @@ import {
   Calendar, Tag, AlertCircle, Check, Loader2, GitCommit,
   ArrowRight, Search, MoreHorizontal, Copy, ExternalLink,
   Sparkles, TrendingUp, FileCheck, Hash, Clock, Layers,
-  RefreshCw, MessageSquare, Filter, LogOut
+  RefreshCw, MessageSquare, Filter, LogOut, Upload
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   Cell, PieChart, Pie, CartesianGrid
@@ -224,46 +224,41 @@ Python, C, Java, NumPy, pandas, scikit-learn, Bloomberg Terminal, KDB+/q, Git, L
 /* ----------------------------- data loading ----------------------------- */
 
 async function loadData() {
-  try {
-    const [resumes, applications] = await Promise.all([
-      api.resumes.list(),
-      api.applications.list(),
-    ]);
+  const [resumes, applications] = await Promise.all([
+    api.resumes.list(),
+    api.applications.list(),
+  ]);
 
-    const resumesObj = Object.fromEntries(
-      resumes.map((r: any) => [
-        r.id,
-        {
-          ...r,
-          parentId: r.parent_id,
-          createdAt: new Date(r.created_at).getTime(),
-        },
-      ])
-    );
+  const resumesObj = Object.fromEntries(
+    resumes.map((r: any) => [
+      r.id,
+      {
+        ...r,
+        parentId: r.parent_id,
+        createdAt: new Date(r.created_at).getTime(),
+      },
+    ])
+  );
 
-    const applicationsObj = Object.fromEntries(
-      applications.map((a: any) => [
-        a.id,
-        {
-          ...a,
-          resumeId: a.resume_id,
-          dateApplied: new Date(a.date_applied).getTime(),
-        },
-      ])
-    );
+  const applicationsObj = Object.fromEntries(
+    applications.map((a: any) => [
+      a.id,
+      {
+        ...a,
+        resumeId: a.resume_id,
+        dateApplied: new Date(a.date_applied).getTime(),
+      },
+    ])
+  );
 
-    const rootId = resumes.find((r: any) => !r.parent_id)?.id ?? null;
+  const rootId = resumes.find((r: any) => !r.parent_id)?.id ?? null;
 
-    return {
-      resumes: resumesObj,
-      applications: applicationsObj,
-      rootId,
-      version: 1,
-    };
-  } catch (e) {
-    console.error('Failed to load data:', e);
-    return null;
-  }
+  return {
+    resumes: resumesObj,
+    applications: applicationsObj,
+    rootId,
+    version: 1,
+  };
 }
 
 /* ----------------------------- tree helpers ----------------------------- */
@@ -403,6 +398,10 @@ const STYLES = `
     border-color: var(--ink);
     box-shadow: 0 0 0 3px rgba(184,69,31,0.12);
   }
+  .ff-input:disabled, .ff-textarea:disabled, .ff-select:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
   .ff-textarea { font-size: 12.5px; line-height: 1.55; resize: vertical; min-height: 280px; }
 
   .ff-chip {
@@ -517,6 +516,8 @@ const App = () => {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<any>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error'>('success');
+  const [submitting, setSubmitting] = useState(false);
   const [compareA, setCompareA] = useState<string | null>(null);
   const [compareB, setCompareB] = useState<string | null>(null);
 
@@ -525,39 +526,62 @@ const App = () => {
     router.push('/login');
   };
 
+  const flash = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToastType(type);
+    setToast(msg);
+    setTimeout(() => setToast(null), type === 'error' ? 3500 : 2400);
+  };
+
+  const handleError = (e: unknown) => {
+    if (e instanceof ApiError && e.status === 401) {
+      window.location.href = '/login';
+      return;
+    }
+    flash(e instanceof Error ? e.message : 'Something went wrong', 'error');
+  };
+
   useEffect(() => {
     (async () => {
-      const existing = await loadData();
-      if (existing) {
+      try {
+        const existing = await loadData();
         setData(existing);
-      } else {
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
         setData({ resumes: {}, applications: {}, rootId: null, version: 1 });
+        flash(e instanceof Error ? e.message : 'Failed to load data', 'error');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, []);
 
   const reloadData = async () => {
     const existing = await loadData();
-    if (existing) setData(existing);
-  };
-
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
+    setData(existing);
   };
 
   const createResume = async ({ name, content, parentId, tags, notes }: any) => {
-    const created = await api.resumes.create({
-      name: name.trim() || 'Untitled',
-      content: content || '',
-      parent_id: parentId || null,
-      tags: tags || [],
-      notes: notes || '',
-    });
-    await reloadData();
-    flash(`Created "${name}"`);
-    return created.id;
+    setSubmitting(true);
+    try {
+      const created = await api.resumes.create({
+        name: name.trim() || 'Untitled',
+        content: content || '',
+        parent_id: parentId || null,
+        tags: tags || [],
+        notes: notes || '',
+      });
+      await reloadData();
+      flash(`Created "${name}"`);
+      return created.id;
+    } catch (e) {
+      handleError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const updateResume = async (id: string, patch: any) => {
@@ -567,32 +591,55 @@ const App = () => {
     if (patch.tags !== undefined) updatePayload.tags = patch.tags;
     if (patch.notes !== undefined) updatePayload.notes = patch.notes;
 
-    await api.resumes.update(id, updatePayload);
-    await reloadData();
+    setSubmitting(true);
+    try {
+      await api.resumes.update(id, updatePayload);
+      await reloadData();
+    } catch (e) {
+      handleError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const deleteResume = async (id: string) => {
     const toDelete = descendants(data.resumes, id);
     const count = toDelete.size;
 
-    for (const rid of toDelete) {
-      await api.resumes.delete(rid);
+    setSubmitting(true);
+    try {
+      for (const rid of toDelete) {
+        await api.resumes.delete(rid);
+      }
+      await reloadData();
+      flash(`Deleted ${count} version${count === 1 ? '' : 's'}`);
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setSubmitting(false);
     }
-    await reloadData();
-    flash(`Deleted ${count} version${count === 1 ? '' : 's'}`);
   };
 
   const createApplication = async (app: any) => {
-    await api.applications.create({
-      company: app.company,
-      role: app.role,
-      status: app.status,
-      notes: app.notes || '',
-      resume_id: app.resumeId || null,
-      date_applied: app.dateApplied || new Date().toISOString(),
-    });
-    await reloadData();
-    flash(`Tracked application to ${app.company}`);
+    setSubmitting(true);
+    try {
+      await api.applications.create({
+        company: app.company,
+        role: app.role,
+        status: app.status,
+        notes: app.notes || '',
+        resume_id: app.resumeId || null,
+        date_applied: app.dateApplied || new Date().toISOString(),
+      });
+      await reloadData();
+      flash(`Tracked application to ${app.company}`);
+    } catch (e) {
+      handleError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const updateApplication = async (id: string, patch: any) => {
@@ -604,61 +651,90 @@ const App = () => {
     if (patch.resumeId !== undefined) updatePayload.resume_id = patch.resumeId;
     if (patch.dateApplied !== undefined) updatePayload.date_applied = patch.dateApplied;
 
-    await api.applications.update(id, updatePayload);
-    await reloadData();
+    setSubmitting(true);
+    try {
+      await api.applications.update(id, updatePayload);
+      await reloadData();
+    } catch (e) {
+      handleError(e);
+      throw e;
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const deleteApplication = async (id: string) => {
-    await api.applications.delete(id);
-    await reloadData();
-    flash('Application removed');
+    setSubmitting(true);
+    try {
+      await api.applications.delete(id);
+      await reloadData();
+      flash('Application removed');
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const resetDemo = async () => {
     const demo = makeDemoData();
 
-    for (const app of Object.values(demo.applications) as any[]) {
-      await api.applications.create({
-        company: app.company,
-        role: app.role,
-        status: app.status,
-        notes: app.notes || '',
-        resume_id: app.resumeId || null,
-        date_applied: new Date(app.dateApplied).toISOString(),
-      });
-    }
+    setSubmitting(true);
+    try {
+      for (const app of Object.values(demo.applications) as any[]) {
+        await api.applications.create({
+          company: app.company,
+          role: app.role,
+          status: app.status,
+          notes: app.notes || '',
+          resume_id: app.resumeId || null,
+          date_applied: new Date(app.dateApplied).toISOString(),
+        });
+      }
 
-    for (const resume of Object.values(demo.resumes) as any[]) {
-      await api.resumes.create({
-        name: resume.name,
-        content: resume.content,
-        parent_id: resume.parentId || null,
-        tags: resume.tags || [],
-        notes: resume.notes || '',
-      });
-    }
+      for (const resume of Object.values(demo.resumes) as any[]) {
+        await api.resumes.create({
+          name: resume.name,
+          content: resume.content,
+          parent_id: resume.parentId || null,
+          tags: resume.tags || [],
+          notes: resume.notes || '',
+        });
+      }
 
-    await reloadData();
-    setCompareA(null);
-    setCompareB(null);
-    flash('Reset to demo data');
+      await reloadData();
+      setCompareA(null);
+      setCompareB(null);
+      flash('Reset to demo data');
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const wipe = async () => {
     const allResumes = Object.keys(data.resumes);
     const allApps = Object.keys(data.applications);
 
-    for (const appId of allApps) {
-      await api.applications.delete(appId);
-    }
-    for (const resumeId of allResumes) {
-      await api.resumes.delete(resumeId);
-    }
+    setSubmitting(true);
+    try {
+      for (const appId of allApps) {
+        await api.applications.delete(appId);
+      }
+      for (const resumeId of allResumes) {
+        await api.resumes.delete(resumeId);
+      }
 
-    await reloadData();
-    setCompareA(null);
-    setCompareB(null);
-    flash('All data cleared');
+      await reloadData();
+      setCompareA(null);
+      setCompareB(null);
+      flash('All data cleared');
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) {
@@ -710,10 +786,10 @@ const App = () => {
           </div>
 
           <div style={{ marginTop: 36, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
-            <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} onClick={resetDemo}>
+            <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} onClick={resetDemo} disabled={submitting}>
               <RefreshCw size={11} /> Reload demo
             </button>
-            <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', color: 'var(--red)', marginBottom: 8 }} onClick={() => setModal({ type: 'confirmWipe' })}>
+            <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', color: 'var(--red)', marginBottom: 8 }} onClick={() => setModal({ type: 'confirmWipe' })} disabled={submitting}>
               Wipe all data
             </button>
             <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={signOut}>
@@ -731,6 +807,7 @@ const App = () => {
               openModal={setModal}
               setCompareA={setCompareA}
               setCompareB={setCompareB}
+              submitting={submitting}
             />
           )}
           {view === 'versions' && (
@@ -741,6 +818,7 @@ const App = () => {
               setCompareB={setCompareB}
               setView={setView}
               deleteResume={deleteResume}
+              submitting={submitting}
             />
           )}
           {view === 'compare' && (
@@ -757,6 +835,7 @@ const App = () => {
               data={data}
               openModal={setModal}
               deleteApplication={deleteApplication}
+              submitting={submitting}
             />
           )}
           {view === 'analytics' && (
@@ -777,6 +856,7 @@ const App = () => {
           createApplication={createApplication}
           updateApplication={updateApplication}
           wipe={wipe}
+          submitting={submitting}
         />
       )}
 
@@ -784,13 +864,17 @@ const App = () => {
       {toast && (
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-          background: 'var(--ink)', color: 'var(--paper)',
+          background: toastType === 'error' ? 'var(--red)' : 'var(--ink)',
+          color: 'var(--paper)',
           padding: '10px 18px', borderRadius: 3,
           fontSize: 12, zIndex: 100,
           animation: 'ff-fade 200ms ease-out',
           boxShadow: '0 8px 24px -8px rgba(0,0,0,0.3)'
         }} className="ff-mono">
-          <Check size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 8 }} />
+          {toastType === 'error'
+            ? <AlertCircle size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 8 }} />
+            : <Check size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 8 }} />
+          }
           {toast}
         </div>
       )}
@@ -833,7 +917,7 @@ const Stat = ({ n, label, accent }: any) => (
    DASHBOARD
    =================================================================== */
 
-const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB }: any) => {
+const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitting }: any) => {
   const resumes = Object.values(data.resumes).sort((a: any, b: any) => b.createdAt - a.createdAt);
   const apps = Object.values(data.applications).sort((a: any, b: any) => b.dateApplied - a.dateApplied);
   const recent = resumes.slice(0, 4);
@@ -849,7 +933,7 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB }: any) 
         title="Welcome back."
         subtitle="Your resume history, applications, and what's working — in one place."
         action={
-          <button className="ff-btn" onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })}>
+          <button className="ff-btn" onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })} disabled={submitting}>
             <Plus size={13} /> New resume
           </button>
         }
@@ -998,7 +1082,7 @@ const EmptyHint = ({ text }: any) => (
    VERSIONS — tree view
    =================================================================== */
 
-const Versions = ({ data, openModal, setCompareA, setCompareB, setView, deleteResume }: any) => {
+const Versions = ({ data, openModal, setCompareA, setCompareB, setView, deleteResume, submitting }: any) => {
   const { roots, childrenOf } = useMemo(() => buildTree(data.resumes), [data.resumes]);
   const [expanded, setExpanded] = useState(() => new Set(Object.keys(data.resumes)));
   const [selectedId, setSelectedId] = useState<string | null>(roots[0] || null);
@@ -1026,7 +1110,7 @@ const Versions = ({ data, openModal, setCompareA, setCompareB, setView, deleteRe
         title="Your resume tree."
         subtitle="Every branch, every commit. Click a version to inspect, edit, or branch from it."
         action={
-          <button className="ff-btn" onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })}>
+          <button className="ff-btn" onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })} disabled={submitting}>
             <Plus size={13} /> New root
           </button>
         }
@@ -1037,7 +1121,7 @@ const Versions = ({ data, openModal, setCompareA, setCompareB, setView, deleteRe
           <FileText size={32} style={{ color: 'var(--ink-3)' }} />
           <div className="ff-display" style={{ fontSize: 22, marginTop: 16, fontWeight: 500 }}>No versions yet</div>
           <div style={{ color: 'var(--ink-3)', marginTop: 8, fontSize: 14 }}>Create your master resume to get started.</div>
-          <button className="ff-btn" style={{ marginTop: 20 }} onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })}>
+          <button className="ff-btn" style={{ marginTop: 20 }} onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })} disabled={submitting}>
             <Plus size={13} /> Create master resume
           </button>
         </div>
@@ -1076,6 +1160,7 @@ const Versions = ({ data, openModal, setCompareA, setCompareB, setView, deleteRe
                 apps={appsForSelected}
                 allResumes={data.resumes}
                 openModal={openModal}
+                submitting={submitting}
                 onCompare={(against: string) => {
                   setCompareA(against);
                   setCompareB(selected.id);
@@ -1177,7 +1262,7 @@ const TreeNode = ({ id, data, childrenOf, depth, expanded, toggle, selectedId, o
   );
 };
 
-const VersionDetail = ({ resume, parent, apps, allResumes, openModal, onCompare, onDelete }: any) => {
+const VersionDetail = ({ resume, parent, apps, allResumes, openModal, onCompare, onDelete, submitting }: any) => {
   const [showFull, setShowFull] = useState(false);
   const lineCount = resume.content.split('\n').length;
   const wordCount = resume.content.split(/\s+/).filter(Boolean).length;
@@ -1273,21 +1358,21 @@ const VersionDetail = ({ resume, parent, apps, allResumes, openModal, onCompare,
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
-        <button className="ff-btn ff-btn-sm" onClick={() => openModal({ type: 'newResume', payload: { parentId: resume.id, prefill: resume.content } })}>
+        <button className="ff-btn ff-btn-sm" onClick={() => openModal({ type: 'newResume', payload: { parentId: resume.id, prefill: resume.content } })} disabled={submitting}>
           <GitBranch size={11} /> Branch
         </button>
-        <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => openModal({ type: 'editResume', payload: resume })}>
+        <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => openModal({ type: 'editResume', payload: resume })} disabled={submitting}>
           <Edit3 size={11} /> Edit
         </button>
         {parent && (
-          <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => onCompare(parent.id)}>
+          <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => onCompare(parent.id)} disabled={submitting}>
             <GitCompare size={11} /> Diff with parent
           </button>
         )}
-        <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={exportTxt}>
+        <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={exportTxt} disabled={submitting}>
           <Download size={11} /> Export
         </button>
-        <button className="ff-btn ff-btn-danger ff-btn-sm" onClick={onDelete} style={{ marginLeft: 'auto' }}>
+        <button className="ff-btn ff-btn-danger ff-btn-sm" onClick={onDelete} style={{ marginLeft: 'auto' }} disabled={submitting}>
           <Trash2 size={11} /> Delete
         </button>
       </div>
@@ -1413,7 +1498,7 @@ const Compare = ({ data, compareA, compareB, setCompareA, setCompareB }: any) =>
    APPLICATIONS
    =================================================================== */
 
-const Applications = ({ data, openModal, deleteApplication }: any) => {
+const Applications = ({ data, openModal, deleteApplication, submitting }: any) => {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
@@ -1440,7 +1525,7 @@ const Applications = ({ data, openModal, deleteApplication }: any) => {
         title="Where you've applied."
         subtitle="Every application linked to a specific resume version, so you know what's working."
         action={
-          <button className="ff-btn" onClick={() => openModal({ type: 'newApplication' })}>
+          <button className="ff-btn" onClick={() => openModal({ type: 'newApplication' })} disabled={submitting}>
             <Plus size={13} /> New application
           </button>
         }
@@ -1547,6 +1632,7 @@ const Applications = ({ data, openModal, deleteApplication }: any) => {
                   onClick={() => openModal({ type: 'editApplication', payload: a })}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-3)' }}
                   title="Edit"
+                  disabled={submitting}
                 >
                   <Edit3 size={13} />
                 </button>
@@ -1554,6 +1640,7 @@ const Applications = ({ data, openModal, deleteApplication }: any) => {
                   onClick={() => { if (confirm(`Remove ${a.company} application?`)) deleteApplication(a.id); }}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-3)' }}
                   title="Delete"
+                  disabled={submitting}
                 >
                   <Trash2 size={13} />
                 </button>
@@ -1764,9 +1851,10 @@ const Analytics = ({ data }: any) => {
    MODALS
    =================================================================== */
 
-const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteResume, createApplication, updateApplication, wipe }: any) => {
+const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteResume, createApplication, updateApplication, wipe, submitting }: any) => {
+  const safeClose = () => { if (!submitting) close(); };
   return (
-    <div className="ff-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <div className="ff-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) safeClose(); }}>
       <div className={`ff-modal ${modal.type === 'newResume' || modal.type === 'editResume' ? 'ff-modal-wide' : ''}`}>
         {modal.type === 'newResume' && (
           <ResumeForm
@@ -1774,8 +1862,9 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             initialParent={modal.payload?.parentId}
             initialContent={modal.payload?.prefill || ''}
             onSave={async (v: any) => { await createResume(v); close(); }}
-            onCancel={close}
+            onCancel={safeClose}
             isBranch={!!modal.payload?.parentId}
+            submitting={submitting}
           />
         )}
         {modal.type === 'editResume' && (
@@ -1783,15 +1872,17 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             data={data}
             existing={modal.payload}
             onSave={async (v: any) => { await updateResume(modal.payload.id, v); close(); }}
-            onCancel={close}
+            onCancel={safeClose}
             isEdit
+            submitting={submitting}
           />
         )}
         {modal.type === 'newApplication' && (
           <ApplicationForm
             data={data}
             onSave={async (v: any) => { await createApplication(v); close(); }}
-            onCancel={close}
+            onCancel={safeClose}
+            submitting={submitting}
           />
         )}
         {modal.type === 'editApplication' && (
@@ -1799,8 +1890,9 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             data={data}
             existing={modal.payload}
             onSave={async (v: any) => { await updateApplication(modal.payload.id, v); close(); }}
-            onCancel={close}
+            onCancel={safeClose}
             isEdit
+            submitting={submitting}
           />
         )}
         {modal.type === 'confirmWipe' && (
@@ -1810,7 +1902,8 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             confirmLabel="Yes, wipe everything"
             danger
             onConfirm={async () => { await wipe(); close(); }}
-            onCancel={close}
+            onCancel={safeClose}
+            submitting={submitting}
           />
         )}
       </div>
@@ -1838,18 +1931,55 @@ const Field = ({ label, hint, children }: any) => (
   </div>
 );
 
-const ResumeForm = ({ data, existing, initialParent, initialContent, isEdit, isBranch, onSave, onCancel }: any) => {
+const ResumeForm = ({ data, existing, initialParent, initialContent, isEdit, isBranch, onSave, onCancel, submitting }: any) => {
   const [name, setName] = useState(existing?.name || (isBranch ? 'New branch' : ''));
   const [content, setContent] = useState(existing?.content ?? initialContent ?? '');
   const [parentId, setParentId] = useState(existing?.parentId ?? initialParent ?? null);
   const [tagsStr, setTagsStr] = useState((existing?.tags || []).join(', '));
   const [notes, setNotes] = useState(existing?.notes || '');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const allParents = Object.values(data.resumes).filter((r: any) => !existing || (r.id !== existing.id && !descendants(data.resumes, existing.id).has(r.id)));
 
   const handleSave = () => {
     const tags = tagsStr.split(',').map((t: string) => t.trim()).filter(Boolean);
     onSave({ name, content, parentId: parentId || null, tags, notes });
+  };
+
+  const handleFile = async (file: File) => {
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/resumes/upload', { method: 'POST', body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Upload failed');
+      setContent(json.text);
+      if (!name.trim()) {
+        setName(file.name.replace(/\.[^.]+$/, ''));
+      }
+    } catch (e: any) {
+      setUploadError(e.message || 'Failed to parse file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDropZoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+    e.target.value = '';
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
   };
 
   const title = isEdit ? `Edit "${existing.name}"` : isBranch ? 'Branch new version' : 'New resume';
@@ -1864,11 +1994,11 @@ const ResumeForm = ({ data, existing, initialParent, initialContent, isEdit, isB
       <ModalHeader title={title} subtitle={subtitle} onClose={onCancel} />
       <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
         <Field label="Name">
-          <input className="ff-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. SWE — Quant tailored" autoFocus />
+          <input className="ff-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. SWE — Quant tailored" autoFocus disabled={submitting} />
         </Field>
 
         <Field label="Branched from" hint="Leave as 'no parent' to make this a root version.">
-          <select className="ff-select" value={parentId || ''} onChange={e => setParentId(e.target.value || null)}>
+          <select className="ff-select" value={parentId || ''} onChange={e => setParentId(e.target.value || null)} disabled={submitting}>
             <option value="">— no parent (root) —</option>
             {(allParents as any[]).map((r: any) => (
               <option key={r.id} value={r.id}>{r.name} · {shortHash(r.id)}</option>
@@ -1876,35 +2006,78 @@ const ResumeForm = ({ data, existing, initialParent, initialContent, isEdit, isB
           </select>
         </Field>
 
-        <Field label="Resume content" hint="Paste your resume as plain text. Diffs compare line-by-line.">
+        <Field label="Resume content" hint="Paste your resume as plain text, or upload a PDF, DOCX, or TEX file below.">
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDrop}
+            onClick={() => !uploading && !submitting && fileInputRef.current?.click()}
+            style={{
+              border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--line-2)'}`,
+              borderRadius: 3,
+              padding: '14px 16px',
+              marginBottom: 8,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              cursor: (uploading || submitting) ? 'not-allowed' : 'pointer',
+              background: dragOver ? 'var(--accent-soft)' : 'var(--paper-2)',
+              transition: 'background 120ms, border-color 120ms',
+              opacity: (uploading || submitting) ? 0.7 : 1,
+            }}
+          >
+            {uploading
+              ? <Loader2 size={15} style={{ animation: 'spin 1.2s linear infinite', flexShrink: 0, color: 'var(--ink-3)' }} />
+              : <Upload size={15} style={{ flexShrink: 0, color: 'var(--ink-3)' }} />
+            }
+            <span className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+              {uploading ? 'Parsing file…' : 'Drop a PDF, DOCX, or TEX file here, or click to browse'}
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,.tex"
+              style={{ display: 'none' }}
+              onChange={onDropZoneChange}
+            />
+          </div>
+          {uploadError && (
+            <div className="ff-mono" style={{ fontSize: 11, color: 'var(--red)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertCircle size={12} /> {uploadError}
+            </div>
+          )}
           <textarea
             className="ff-textarea"
             value={content}
             onChange={e => setContent(e.target.value)}
             placeholder="NAME&#10;email | linkedin | github&#10;&#10;EDUCATION&#10;...&#10;&#10;EXPERIENCE&#10;..."
+            disabled={submitting}
           />
         </Field>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Tags" hint="Comma-separated. e.g. swe, google, draft">
-            <input className="ff-input" value={tagsStr} onChange={e => setTagsStr(e.target.value)} placeholder="swe, finance, draft" />
+            <input className="ff-input" value={tagsStr} onChange={e => setTagsStr(e.target.value)} placeholder="swe, finance, draft" disabled={submitting} />
           </Field>
           <Field label="Notes" hint="Recruiter feedback, what you changed, etc.">
-            <input className="ff-input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="What changed in this version?" />
+            <input className="ff-input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="What changed in this version?" disabled={submitting} />
           </Field>
         </div>
       </div>
       <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
-        <button className="ff-btn ff-btn-ghost" onClick={onCancel}>Cancel</button>
-        <button className="ff-btn" onClick={handleSave} disabled={!name.trim()}>
-          {isEdit ? 'Save changes' : isBranch ? 'Create branch' : 'Create resume'}
+        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button className="ff-btn" onClick={handleSave} disabled={!name.trim() || submitting}>
+          {submitting
+            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Saving…</>
+            : (isEdit ? 'Save changes' : isBranch ? 'Create branch' : 'Create resume')
+          }
         </button>
       </div>
     </>
   );
 };
 
-const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel }: any) => {
+const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel, submitting }: any) => {
   const [company, setCompany] = useState(existing?.company || '');
   const [role, setRole] = useState(existing?.role || '');
   const [resumeId, setResumeId] = useState(existing?.resumeId || '');
@@ -1939,15 +2112,15 @@ const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel }: any) => {
       <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Company">
-            <input className="ff-input" value={company} onChange={e => setCompany(e.target.value)} placeholder="e.g. Google" autoFocus />
+            <input className="ff-input" value={company} onChange={e => setCompany(e.target.value)} placeholder="e.g. Google" autoFocus disabled={submitting} />
           </Field>
           <Field label="Role">
-            <input className="ff-input" value={role} onChange={e => setRole(e.target.value)} placeholder="e.g. SWE Intern" />
+            <input className="ff-input" value={role} onChange={e => setRole(e.target.value)} placeholder="e.g. SWE Intern" disabled={submitting} />
           </Field>
         </div>
 
         <Field label="Resume version used">
-          <select className="ff-select" value={resumeId} onChange={e => setResumeId(e.target.value)}>
+          <select className="ff-select" value={resumeId} onChange={e => setResumeId(e.target.value)} disabled={submitting}>
             <option value="">— none / unlinked —</option>
             {(resumeOptions as any[]).map((r: any) => (
               <option key={r.id} value={r.id}>{r.name} · {shortHash(r.id)}</option>
@@ -1957,7 +2130,7 @@ const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel }: any) => {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <Field label="Status">
-            <select className="ff-select" value={status} onChange={e => setStatus(e.target.value)}>
+            <select className="ff-select" value={status} onChange={e => setStatus(e.target.value)} disabled={submitting}>
               <option value="applied">Applied</option>
               <option value="interviewing">Interviewing</option>
               <option value="offer">Offer</option>
@@ -1966,7 +2139,7 @@ const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel }: any) => {
             </select>
           </Field>
           <Field label="Date applied">
-            <input className="ff-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <input className="ff-input" type="date" value={date} onChange={e => setDate(e.target.value)} disabled={submitting} />
           </Field>
         </div>
 
@@ -1977,20 +2150,24 @@ const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel }: any) => {
             onChange={e => setNotes(e.target.value)}
             placeholder="Recruiter said decision by Friday…"
             style={{ minHeight: 100 }}
+            disabled={submitting}
           />
         </Field>
       </div>
       <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
-        <button className="ff-btn ff-btn-ghost" onClick={onCancel}>Cancel</button>
-        <button className="ff-btn" onClick={handleSave} disabled={!company.trim()}>
-          {isEdit ? 'Save changes' : 'Track application'}
+        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button className="ff-btn" onClick={handleSave} disabled={!company.trim() || submitting}>
+          {submitting
+            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Saving…</>
+            : (isEdit ? 'Save changes' : 'Track application')
+          }
         </button>
       </div>
     </>
   );
 };
 
-const ConfirmDialog = ({ title, message, confirmLabel, danger, onConfirm, onCancel }: any) => (
+const ConfirmDialog = ({ title, message, confirmLabel, danger, onConfirm, onCancel, submitting }: any) => (
   <>
     <ModalHeader title={title} onClose={onCancel} />
     <div style={{ padding: '24px 28px' }}>
@@ -2000,8 +2177,13 @@ const ConfirmDialog = ({ title, message, confirmLabel, danger, onConfirm, onCanc
       </div>
     </div>
     <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
-      <button className="ff-btn ff-btn-ghost" onClick={onCancel}>Cancel</button>
-      <button className={`ff-btn ${danger ? 'ff-btn-danger' : ''}`} onClick={onConfirm}>{confirmLabel}</button>
+      <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={submitting}>Cancel</button>
+      <button className={`ff-btn ${danger ? 'ff-btn-danger' : ''}`} onClick={onConfirm} disabled={submitting}>
+        {submitting
+          ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Working…</>
+          : confirmLabel
+        }
+      </button>
     </div>
   </>
 );
