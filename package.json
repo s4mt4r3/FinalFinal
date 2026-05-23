@@ -10,7 +10,7 @@
     "types:generate": "supabase gen types typescript --linked > types/database.generated.ts"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.5.2",
+    "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.0",
     "@types/pdf-parse": "^1.1.5",
     "lucide-react": "^1.16.0",

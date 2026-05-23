@@ -681,24 +681,43 @@ const App = () => {
 
     setSubmitting(true);
     try {
+      // Resumes form a tree: insert parents before children so each child's
+      // parent_id can be remapped from the demo's local UUID to the freshly
+      // generated DB UUID. Without this remap, the parent_id RLS check fails
+      // because the local UUID doesn't exist in the resumes table.
+      const localToDbId: Record<string, string> = {};
+      const remaining = new Map<string, any>(Object.entries(demo.resumes));
+      while (remaining.size > 0) {
+        let progressed = false;
+        for (const [localId, resume] of Array.from(remaining)) {
+          const parentReady =
+            !resume.parentId || localToDbId[resume.parentId];
+          if (!parentReady) continue;
+          const created = await api.resumes.create({
+            name: resume.name,
+            content: resume.content,
+            parent_id: resume.parentId ? localToDbId[resume.parentId] : null,
+            tags: resume.tags || [],
+            notes: resume.notes || '',
+          });
+          localToDbId[localId] = created.id;
+          remaining.delete(localId);
+          progressed = true;
+        }
+        if (!progressed) {
+          throw new Error('Demo data has a cyclic or dangling parent reference');
+        }
+      }
+
+      // Now insert applications, remapping each app's resume_id to the DB id.
       for (const app of Object.values(demo.applications) as any[]) {
         await api.applications.create({
           company: app.company,
           role: app.role,
           status: app.status,
           notes: app.notes || '',
-          resume_id: app.resumeId || null,
+          resume_id: app.resumeId ? localToDbId[app.resumeId] ?? null : null,
           date_applied: new Date(app.dateApplied).toISOString(),
-        });
-      }
-
-      for (const resume of Object.values(demo.resumes) as any[]) {
-        await api.resumes.create({
-          name: resume.name,
-          content: resume.content,
-          parent_id: resume.parentId || null,
-          tags: resume.tags || [],
-          notes: resume.notes || '',
         });
       }
 
@@ -1861,7 +1880,7 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             data={data}
             initialParent={modal.payload?.parentId}
             initialContent={modal.payload?.prefill || ''}
-            onSave={async (v: any) => { await createResume(v); close(); }}
+            onSave={async (v: any) => { try { await createResume(v); close(); } catch {} }}
             onCancel={safeClose}
             isBranch={!!modal.payload?.parentId}
             submitting={submitting}
@@ -1871,7 +1890,7 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
           <ResumeForm
             data={data}
             existing={modal.payload}
-            onSave={async (v: any) => { await updateResume(modal.payload.id, v); close(); }}
+            onSave={async (v: any) => { try { await updateResume(modal.payload.id, v); close(); } catch {} }}
             onCancel={safeClose}
             isEdit
             submitting={submitting}
@@ -1880,7 +1899,7 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
         {modal.type === 'newApplication' && (
           <ApplicationForm
             data={data}
-            onSave={async (v: any) => { await createApplication(v); close(); }}
+            onSave={async (v: any) => { try { await createApplication(v); close(); } catch {} }}
             onCancel={safeClose}
             submitting={submitting}
           />
@@ -1889,7 +1908,7 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
           <ApplicationForm
             data={data}
             existing={modal.payload}
-            onSave={async (v: any) => { await updateApplication(modal.payload.id, v); close(); }}
+            onSave={async (v: any) => { try { await updateApplication(modal.payload.id, v); close(); } catch {} }}
             onCancel={safeClose}
             isEdit
             submitting={submitting}

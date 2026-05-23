@@ -1,17 +1,7 @@
-// ============================================================
-// app/api/auth/callback/route.ts
-// ============================================================
-// OAuth redirect handler. When a user signs in with Google,
-// Supabase redirects them back to:
-//   https://yourapp.com/api/auth/callback?code=<token>
-//
-// This route exchanges the code for a session cookie, then sends
-// the user to the dashboard. Without this, the OAuth handshake
-// never completes.
-// ============================================================
-
 import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase-server';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import type { Database } from '@/types/database';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -22,7 +12,30 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
   }
 
-  const supabase = await createSupabaseServerClient();
+  // Build the redirect response first so we can write Set-Cookie headers
+  // directly onto it. Using cookieStore.set() from next/headers writes to a
+  // separate internal response object and those cookies never reach the
+  // NextResponse.redirect() the browser actually receives.
+  const redirectTo = NextResponse.redirect(`${origin}${next}`);
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            redirectTo.cookies.set(name, value, options)
+          );
+        },
+      },
+    }
+  );
+
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
@@ -31,5 +44,5 @@ export async function GET(request: Request) {
     );
   }
 
-  return NextResponse.redirect(`${origin}${next}`);
+  return redirectTo;
 }

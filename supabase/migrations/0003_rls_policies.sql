@@ -66,11 +66,17 @@ create policy "resumes: insert own"
     auth.uid() = user_id
     -- And if a parent is specified, you must own the parent too.
     -- This prevents grafting your resume onto someone else's tree.
+    --
+    -- NOTE: `parent_id in (select id ...)` (not `exists`). Inside an
+    -- EXISTS subquery on `public.resumes`, the unqualified `parent_id`
+    -- would resolve to the inner row's column (because `resumes` has
+    -- its own `parent_id` column) — not the new row being inserted.
+    -- Using `parent_id in (select id ...)` keeps the outer reference
+    -- unambiguous: the subquery never names `parent_id`.
     and (
       parent_id is null
-      or exists (
-        select 1 from public.resumes p
-        where p.id = parent_id and p.user_id = auth.uid()
+      or parent_id in (
+        select id from public.resumes where user_id = auth.uid()
       )
     )
   );

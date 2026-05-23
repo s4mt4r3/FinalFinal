@@ -64,12 +64,21 @@ export function errorResponse(err: unknown) {
       { status: 400 }
     );
   }
+  // Log the full error server-side so we can debug 500s.
+  console.error('[api] error:', err);
   if (err instanceof Error) {
-    // Don't leak internal error messages to the client in prod.
     const message =
       process.env.NODE_ENV === 'production'
         ? 'Internal server error'
         : err.message;
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+  // Supabase PostgrestError has a `message` property but does not extend Error.
+  if (err && typeof err === 'object' && 'message' in err) {
+    const message =
+      process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : String((err as { message: unknown }).message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
   return NextResponse.json({ error: 'Unknown error' }, { status: 500 });
