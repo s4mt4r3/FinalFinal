@@ -224,9 +224,15 @@ Python, C, Java, NumPy, pandas, scikit-learn, Bloomberg Terminal, KDB+/q, Git, L
 /* ----------------------------- data loading ----------------------------- */
 
 async function loadData() {
-  const [resumes, applications] = await Promise.all([
+  const [resumes, applications, interviews, billing] = await Promise.all([
     api.resumes.list(),
     api.applications.list(),
+    api.interviews.list().catch((e) => {
+      // Free tier: gate is closed → treat as no interviews
+      if (e instanceof ApiError && e.status === 402) return [];
+      throw e;
+    }),
+    api.billing.status().catch(() => ({ tier: 'free' as const, current_period_end: null, status: null })),
   ]);
 
   const resumesObj = Object.fromEntries(
@@ -251,11 +257,22 @@ async function loadData() {
     ])
   );
 
+  const interviewsByApp: Record<string, any[]> = {};
+  for (const iv of interviews as any[]) {
+    (interviewsByApp[iv.application_id] ||= []).push({
+      ...iv,
+      applicationId: iv.application_id,
+      scheduledAt: iv.scheduled_at ? new Date(iv.scheduled_at).getTime() : null,
+    });
+  }
+
   const rootId = resumes.find((r: any) => !r.parent_id)?.id ?? null;
 
   return {
     resumes: resumesObj,
     applications: applicationsObj,
+    interviewsByApp,
+    billing,
     rootId,
     version: 1,
   };
@@ -511,7 +528,7 @@ const StatusChip = ({ status }: { status: string }) => (
 
 const App = () => {
   const router = useRouter();
-  const [data, setData] = useState<any>({ resumes: {}, applications: {}, rootId: null });
+  const [data, setData] = useState<any>({ resumes: {}, applications: {}, interviewsByApp: {}, billing: { tier: 'free' }, rootId: null });
   const [view, setView] = useState('dashboard');
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<any>(null);
@@ -550,7 +567,7 @@ const App = () => {
           window.location.href = '/login';
           return;
         }
-        setData({ resumes: {}, applications: {}, rootId: null, version: 1 });
+        setData({ resumes: {}, applications: {}, interviewsByApp: {}, billing: { tier: 'free', current_period_end: null, status: null }, rootId: null, version: 1 });
         flash(e instanceof Error ? e.message : 'Failed to load data', 'error');
       } finally {
         setLoading(false);
@@ -804,7 +821,23 @@ const App = () => {
             <Glance data={data} />
           </div>
 
-          <div style={{ marginTop: 36, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
+          <div style={{ marginTop: 28 }}>
+            <BillingCard
+              tier={data.billing?.tier || 'free'}
+              periodEnd={data.billing?.current_period_end}
+              onUpgrade={() => setModal({ type: 'upgrade' })}
+              onManage={async () => {
+                try {
+                  const { url } = await api.billing.portal();
+                  window.location.href = url;
+                } catch (e) {
+                  handleError(e);
+                }
+              }}
+            />
+          </div>
+
+          <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
             <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} onClick={resetDemo} disabled={submitting}>
               <RefreshCw size={11} /> Reload demo
             </button>
@@ -876,6 +909,7 @@ const App = () => {
           updateApplication={updateApplication}
           wipe={wipe}
           submitting={submitting}
+          reloadData={reloadData}
         />
       )}
 
@@ -896,6 +930,50 @@ const App = () => {
           }
           {toast}
         </div>
+      )}
+    </div>
+  );
+};
+
+/* ----------------------------- billing card ----------------------------- */
+const BillingCard = ({ tier, periodEnd, onUpgrade, onManage }: any) => {
+  const isPlus = tier === 'plus';
+  return (
+    <div style={{
+      border: '1px solid ' + (isPlus ? 'var(--accent)' : 'var(--line-2)'),
+      background: isPlus ? 'var(--accent-soft)' : 'var(--paper-2)',
+      borderRadius: 4,
+      padding: 14,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Sparkles size={13} style={{ color: isPlus ? 'var(--accent)' : 'var(--ink-3)' }} />
+        <span className="ff-mono ff-label" style={{ color: isPlus ? 'var(--accent-2)' : 'var(--ink-3)' }}>
+          {isPlus ? 'Plus' : 'Free'}
+        </span>
+      </div>
+      {isPlus ? (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, lineHeight: 1.4 }}>
+            All Plus features unlocked.
+          </div>
+          {periodEnd && (
+            <div className="ff-mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 6 }}>
+              Renews {new Date(periodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </div>
+          )}
+          <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={onManage} style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}>
+            Manage billing
+          </button>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, lineHeight: 1.4 }}>
+            Unlock styled PDFs, JD matching, and interview tracking.
+          </div>
+          <button className="ff-btn ff-btn-sm" onClick={onUpgrade} style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}>
+            <Sparkles size={11} /> Upgrade
+          </button>
+        </>
       )}
     </div>
   );
@@ -1389,7 +1467,21 @@ const VersionDetail = ({ resume, parent, apps, allResumes, openModal, onCompare,
           </button>
         )}
         <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={exportTxt} disabled={submitting}>
-          <Download size={11} /> Export
+          <Download size={11} /> Export .txt
+        </button>
+        <button
+          className="ff-btn ff-btn-ghost ff-btn-sm"
+          onClick={() => openModal({ type: 'exportPdf', payload: resume })}
+          disabled={submitting}
+        >
+          <Sparkles size={11} /> Export PDF
+        </button>
+        <button
+          className="ff-btn ff-btn-ghost ff-btn-sm"
+          onClick={() => openModal({ type: 'matchKeywords', payload: resume })}
+          disabled={submitting}
+        >
+          <Search size={11} /> Match JD
         </button>
         <button className="ff-btn ff-btn-danger ff-btn-sm" onClick={onDelete} style={{ marginLeft: 'auto' }} disabled={submitting}>
           <Trash2 size={11} /> Delete
@@ -1591,7 +1683,7 @@ const Applications = ({ data, openModal, deleteApplication, submitting }: any) =
       <div className="ff-card" style={{ marginTop: 20, overflow: 'hidden' }}>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '24px 1.4fr 1.6fr 1.4fr 120px 100px 60px',
+          gridTemplateColumns: '24px 1.4fr 1.6fr 1.4fr 120px 100px 110px',
           gap: 16, padding: '12px 22px',
           borderBottom: '1px solid var(--line)',
           background: 'var(--paper-3)',
@@ -1618,7 +1710,7 @@ const Applications = ({ data, openModal, deleteApplication, submitting }: any) =
               key={a.id}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '24px 1.4fr 1.6fr 1.4fr 120px 100px 60px',
+                gridTemplateColumns: '24px 1.4fr 1.6fr 1.4fr 120px 100px 110px',
                 gap: 16, padding: '14px 22px',
                 borderBottom: '1px solid var(--line)',
                 alignItems: 'center',
@@ -1646,7 +1738,23 @@ const Applications = ({ data, openModal, deleteApplication, submitting }: any) =
               </div>
               <StatusChip status={a.status} />
               <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{fmtDate(a.dateApplied)}</div>
-              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
+                <button
+                  onClick={() => openModal({ type: 'interviews', payload: a })}
+                  style={{
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    padding: '4px 6px', color: 'var(--ink-2)',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                  }}
+                  title="Interviews"
+                  disabled={submitting}
+                >
+                  <Calendar size={12} />
+                  {(data.interviewsByApp?.[a.id]?.length ?? 0) > 0 && (
+                    <span className="ff-tabular">{data.interviewsByApp[a.id].length}</span>
+                  )}
+                </button>
                 <button
                   onClick={() => openModal({ type: 'editApplication', payload: a })}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-3)' }}
@@ -1870,7 +1978,7 @@ const Analytics = ({ data }: any) => {
    MODALS
    =================================================================== */
 
-const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteResume, createApplication, updateApplication, wipe, submitting }: any) => {
+const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteResume, createApplication, updateApplication, wipe, submitting, reloadData }: any) => {
   const safeClose = () => { if (!submitting) close(); };
   return (
     <div className="ff-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) safeClose(); }}>
@@ -1924,6 +2032,23 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             onCancel={safeClose}
             submitting={submitting}
           />
+        )}
+        {modal.type === 'exportPdf' && (
+          <ExportPdfModal resume={modal.payload} onCancel={safeClose} />
+        )}
+        {modal.type === 'matchKeywords' && (
+          <MatchKeywordsModal resume={modal.payload} onCancel={safeClose} />
+        )}
+        {modal.type === 'interviews' && (
+          <InterviewsModal
+            application={modal.payload}
+            data={data}
+            onCancel={safeClose}
+            onChanged={reloadData}
+          />
+        )}
+        {modal.type === 'upgrade' && (
+          <UpgradeModal onCancel={safeClose} />
         )}
       </div>
     </div>
@@ -2179,6 +2304,633 @@ const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel, submitting 
           {submitting
             ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Saving…</>
             : (isEdit ? 'Save changes' : 'Track application')
+          }
+        </button>
+      </div>
+    </>
+  );
+};
+
+const PDF_TEMPLATES: { id: 'jake' | 'compact' | 'modern' | 'tech'; label: string; blurb: string }[] = [
+  { id: 'jake',    label: "Jake's",  blurb: 'ATS-optimized, single column. The classic.' },
+  { id: 'compact', label: 'Compact', blurb: 'Tight one-page layout. Smaller margins.' },
+  { id: 'modern',  label: 'Modern',  blurb: 'Two-column. Skills sidebar, content right.' },
+  { id: 'tech',    label: 'Tech',    blurb: 'Projects-first ordering. Monospace accents.' },
+];
+
+const ExportPdfModal = ({ resume, onCancel }: any) => {
+  const [picked, setPicked] = useState<'jake' | 'compact' | 'modern' | 'tech'>('jake');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const filename = useMemo(() => {
+    const roleTag = (resume.tags || []).find((t: string) => t && t !== 'master' && t !== 'draft');
+    const suffix = roleTag ? `_${slug(roleTag)}` : '';
+    return `${slug(resume.name)}${suffix}.pdf`;
+  }, [resume]);
+
+  const handleExport = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const html = await api.resumes.exportPdfHtml(resume.id, picked);
+
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const styles = Array.from(doc.head.querySelectorAll('style'))
+        .map((s) => s.outerHTML)
+        .join('');
+
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-10000px';
+      container.style.top = '0';
+      container.style.width = '8.5in';
+      container.innerHTML = styles + doc.body.innerHTML;
+      document.body.appendChild(container);
+
+      try {
+        const html2pdf = (await import('html2pdf.js')).default;
+        const opts: Record<string, unknown> = {
+          margin: 0,
+          filename,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+        };
+        await html2pdf().from(container).set(opts).save();
+      } finally {
+        document.body.removeChild(container);
+      }
+
+      onCancel();
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status === 402) {
+        setError('PDF export is a Plus feature. Upgrade to enable.');
+      } else {
+        setError(e?.message || 'Failed to export PDF');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <ModalHeader
+        title="Export PDF"
+        subtitle="Pick a template. We'll style your resume and download a PDF."
+        onClose={onCancel}
+      />
+      <div style={{ padding: '24px 28px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {PDF_TEMPLATES.map((t) => {
+            const active = picked === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setPicked(t.id)}
+                disabled={busy}
+                style={{
+                  textAlign: 'left',
+                  padding: 14,
+                  borderRadius: 3,
+                  border: '1px solid ' + (active ? 'var(--ink)' : 'var(--line-2)'),
+                  background: active ? 'var(--paper-3)' : 'var(--paper)',
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  color: 'var(--ink)',
+                  transition: 'all 120ms ease',
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div className="ff-display" style={{ fontSize: 16, fontWeight: 600 }}>
+                    {t.label}
+                  </div>
+                  {active && <Check size={14} style={{ color: 'var(--accent)' }} />}
+                </div>
+                <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.4 }}>
+                  {t.blurb}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 16 }}>
+          File: <span style={{ color: 'var(--ink-2)' }}>{filename}</span>
+        </div>
+
+        {error && (
+          <div className="ff-mono" style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertCircle size={12} /> {error}
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
+        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button className="ff-btn" onClick={handleExport} disabled={busy}>
+          {busy
+            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Generating…</>
+            : <><Download size={13} /> Download PDF</>
+          }
+        </button>
+      </div>
+    </>
+  );
+};
+
+const MatchKeywordsModal = ({ resume, onCancel }: any) => {
+  const [jd, setJd] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    matched: string[];
+    missing: string[];
+    score: number;
+    all_keywords: { term: string; count: number; matched: boolean }[];
+  } | null>(null);
+
+  const handleMatch = async () => {
+    if (jd.trim().length < 20) {
+      setError('Paste at least a paragraph of the job description.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.resumes.matchKeywords({
+        resume_id: resume.id,
+        job_text: jd,
+      });
+      setResult(r);
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status === 402) {
+        setError('Keyword matching is a Plus feature. Upgrade to enable.');
+      } else {
+        setError(e?.message || 'Failed to match keywords');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reset = () => {
+    setResult(null);
+    setError(null);
+  };
+
+  return (
+    <>
+      <ModalHeader
+        title={result ? 'Keyword match' : 'Match against a job posting'}
+        subtitle={result
+          ? `${resume.name} · ${result.all_keywords.length} keywords extracted`
+          : `Paste a job description. We'll extract the key skills and tools, then highlight what's missing from "${resume.name}".`}
+        onClose={onCancel}
+      />
+      {!result && (
+        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Field label="Job description">
+            <textarea
+              className="ff-textarea"
+              value={jd}
+              onChange={(e) => setJd(e.target.value)}
+              placeholder="Paste the full job description here…"
+              style={{ minHeight: 220 }}
+              disabled={busy}
+              autoFocus
+            />
+          </Field>
+          {error && (
+            <div className="ff-mono" style={{ fontSize: 11.5, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertCircle size={12} /> {error}
+            </div>
+          )}
+        </div>
+      )}
+      {result && (
+        <div style={{ padding: '24px 28px' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 18,
+            padding: '14px 16px',
+            border: '1px solid var(--line)',
+            borderRadius: 3,
+            background: 'var(--paper-3)',
+          }}>
+            <div className="ff-tabular ff-display" style={{
+              fontSize: 38,
+              fontWeight: 600,
+              color: result.score >= 70 ? 'var(--green)' : result.score >= 40 ? 'var(--amber)' : 'var(--red)',
+              lineHeight: 1,
+            }}>
+              {result.score}%
+            </div>
+            <div style={{ flex: 1 }}>
+              <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)' }}>Match score</div>
+              <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 4 }}>
+                <span style={{ color: 'var(--green)', fontWeight: 600 }}>{result.matched.length}</span> matched ·{' '}
+                <span style={{ color: 'var(--red)', fontWeight: 600 }}>{result.missing.length}</span> missing
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 18 }}>
+            <div>
+              <div className="ff-mono ff-label" style={{ color: 'var(--green)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Check size={11} /> In your resume ({result.matched.length})
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {result.matched.length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>None of the JD keywords found.</div>
+                )}
+                {result.matched.map((t) => (
+                  <span key={t} className="ff-chip ff-status-offer" style={{ textTransform: 'none' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="ff-mono ff-label" style={{ color: 'var(--red)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <X size={11} /> Missing ({result.missing.length})
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {result.missing.length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>Nothing missing — strong match.</div>
+                )}
+                {result.missing.map((t) => (
+                  <span key={t} className="ff-chip ff-status-rejected" style={{ textTransform: 'none' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
+        {result ? (
+          <>
+            <button className="ff-btn ff-btn-ghost" onClick={reset} disabled={busy}>
+              <RefreshCw size={13} /> Try another
+            </button>
+            <button className="ff-btn" onClick={onCancel}>Done</button>
+          </>
+        ) : (
+          <>
+            <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
+            <button className="ff-btn" onClick={handleMatch} disabled={busy || jd.trim().length < 20}>
+              {busy
+                ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Analyzing…</>
+                : <><Search size={13} /> Run match</>
+              }
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+};
+
+const INTERVIEW_KINDS = ['Phone screen', 'Recruiter', 'Technical', 'Behavioral', 'Onsite', 'Final round', 'Take-home', 'OA'];
+const INTERVIEW_OUTCOMES: { id: string; label: string }[] = [
+  { id: 'pending', label: 'Pending' },
+  { id: 'passed', label: 'Passed' },
+  { id: 'rejected', label: 'Rejected' },
+  { id: 'withdrew', label: 'Withdrew' },
+];
+
+const fmtInterviewWhen = (ts: number | null) => {
+  if (!ts) return 'Not scheduled';
+  const d = new Date(ts);
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric',
+    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+    hour: 'numeric', minute: '2-digit',
+  });
+};
+
+const toDatetimeLocal = (ts: number | null): string => {
+  if (!ts) return '';
+  const d = new Date(ts - d_tzOffset(ts));
+  return d.toISOString().slice(0, 16);
+};
+const d_tzOffset = (ts: number) => new Date(ts).getTimezoneOffset() * 60000;
+
+const InterviewsModal = ({ application, data, onCancel, onChanged }: any) => {
+  const seedInterviews = data.interviewsByApp?.[application.id] ?? [];
+  const [items, setItems] = useState<any[]>(seedInterviews);
+  const [draft, setDraft] = useState<{ kind: string; scheduledAt: string; notes: string; outcome: string }>({
+    kind: 'Phone screen',
+    scheduledAt: '',
+    notes: '',
+    outcome: 'pending',
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<any>(null);
+  const [showForm, setShowForm] = useState(seedInterviews.length === 0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const fresh = await api.interviews.list(application.id);
+      setItems(
+        fresh.map((iv: any) => ({
+          ...iv,
+          applicationId: iv.application_id,
+          scheduledAt: iv.scheduled_at ? new Date(iv.scheduled_at).getTime() : null,
+        }))
+      );
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status === 402) {
+        setError('Interview tracking is a Plus feature. Upgrade to enable.');
+      } else {
+        setError(e?.message || 'Failed to load interviews');
+      }
+    }
+  };
+
+  const handleCreate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.interviews.create({
+        application_id: application.id,
+        kind: draft.kind || null,
+        scheduled_at: draft.scheduledAt ? new Date(draft.scheduledAt).toISOString() : null,
+        notes: draft.notes,
+        outcome: (draft.outcome as any) || null,
+      });
+      await refresh();
+      onChanged?.();
+      setDraft({ kind: 'Phone screen', scheduledAt: '', notes: '', outcome: 'pending' });
+      setShowForm(false);
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status === 402) {
+        setError('Interview tracking is a Plus feature. Upgrade to enable.');
+      } else {
+        setError(e?.message || 'Failed to save interview');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const beginEdit = (iv: any) => {
+    setEditingId(iv.id);
+    setEditDraft({
+      kind: iv.kind || 'Phone screen',
+      scheduledAt: toDatetimeLocal(iv.scheduledAt),
+      notes: iv.notes || '',
+      outcome: iv.outcome || 'pending',
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !editDraft) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.interviews.update(editingId, {
+        kind: editDraft.kind || null,
+        scheduled_at: editDraft.scheduledAt ? new Date(editDraft.scheduledAt).toISOString() : null,
+        notes: editDraft.notes,
+        outcome: (editDraft.outcome as any) || null,
+      });
+      setEditingId(null);
+      setEditDraft(null);
+      await refresh();
+      onChanged?.();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this interview?')) return;
+    setBusy(true);
+    try {
+      await api.interviews.delete(id);
+      await refresh();
+      onChanged?.();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to delete');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <ModalHeader
+        title={`Interviews · ${application.company}`}
+        subtitle={`${application.role || 'Role unspecified'} · ${items.length} interview${items.length === 1 ? '' : 's'}`}
+        onClose={onCancel}
+      />
+      <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {error && (
+          <div className="ff-mono" style={{ fontSize: 11.5, color: 'var(--red)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertCircle size={12} /> {error}
+          </div>
+        )}
+
+        {items.length === 0 && !showForm && (
+          <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--ink-3)' }}>
+            <Calendar size={22} style={{ opacity: 0.5 }} />
+            <div style={{ marginTop: 10, fontSize: 13 }}>No interviews logged for this application yet.</div>
+          </div>
+        )}
+
+        {items.map((iv) => {
+          const isEditing = editingId === iv.id;
+          return (
+            <div key={iv.id} style={{
+              border: '1px solid var(--line)',
+              borderRadius: 3,
+              padding: 14,
+              background: 'var(--paper-2)',
+            }}>
+              {!isEditing ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span className="ff-chip" style={{ textTransform: 'none' }}>{iv.kind || 'Interview'}</span>
+                      {iv.outcome && (
+                        <span className={`ff-chip ff-status-${iv.outcome === 'passed' ? 'offer' : iv.outcome === 'rejected' ? 'rejected' : iv.outcome === 'withdrew' ? 'ghosted' : 'applied'}`} style={{ textTransform: 'none' }}>
+                          {INTERVIEW_OUTCOMES.find((o) => o.id === iv.outcome)?.label || iv.outcome}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button onClick={() => beginEdit(iv)} disabled={busy} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-3)' }} title="Edit">
+                        <Edit3 size={13} />
+                      </button>
+                      <button onClick={() => handleDelete(iv.id)} disabled={busy} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--ink-3)' }} title="Delete">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="ff-mono" style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Clock size={11} /> {fmtInterviewWhen(iv.scheduledAt)}
+                  </div>
+                  {iv.notes && (
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                      {iv.notes}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <select className="ff-select" value={editDraft.kind} onChange={(e) => setEditDraft({ ...editDraft, kind: e.target.value })} disabled={busy}>
+                      {INTERVIEW_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                    <select className="ff-select" value={editDraft.outcome} onChange={(e) => setEditDraft({ ...editDraft, outcome: e.target.value })} disabled={busy}>
+                      {INTERVIEW_OUTCOMES.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <input className="ff-input" type="datetime-local" value={editDraft.scheduledAt} onChange={(e) => setEditDraft({ ...editDraft, scheduledAt: e.target.value })} disabled={busy} />
+                  <textarea className="ff-textarea" value={editDraft.notes} onChange={(e) => setEditDraft({ ...editDraft, notes: e.target.value })} placeholder="Recruiter, prep notes, follow-ups…" style={{ minHeight: 80 }} disabled={busy} />
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => { setEditingId(null); setEditDraft(null); }} disabled={busy}>Cancel</button>
+                    <button className="ff-btn ff-btn-sm" onClick={handleSaveEdit} disabled={busy}>
+                      {busy ? <><Loader2 size={11} style={{ animation: 'spin 1.2s linear infinite' }} /> Saving…</> : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {showForm ? (
+          <div style={{
+            border: '1px dashed var(--line-2)',
+            borderRadius: 3,
+            padding: 16,
+            background: 'var(--paper)',
+          }}>
+            <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
+              <Plus size={11} style={{ display: 'inline', verticalAlign: -1, marginRight: 4 }} /> Add interview
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <select className="ff-select" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} disabled={busy}>
+                {INTERVIEW_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+              </select>
+              <select className="ff-select" value={draft.outcome} onChange={(e) => setDraft({ ...draft, outcome: e.target.value })} disabled={busy}>
+                {INTERVIEW_OUTCOMES.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            <input className="ff-input" type="datetime-local" value={draft.scheduledAt} onChange={(e) => setDraft({ ...draft, scheduledAt: e.target.value })} disabled={busy} style={{ marginBottom: 10 }} />
+            <textarea
+              className="ff-textarea"
+              value={draft.notes}
+              onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+              placeholder="Recruiter name, agenda, prep notes…"
+              style={{ minHeight: 90 }}
+              disabled={busy}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+              {items.length > 0 && (
+                <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => setShowForm(false)} disabled={busy}>Cancel</button>
+              )}
+              <button className="ff-btn ff-btn-sm" onClick={handleCreate} disabled={busy}>
+                {busy ? <><Loader2 size={11} style={{ animation: 'spin 1.2s linear infinite' }} /> Saving…</> : 'Save interview'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="ff-btn ff-btn-ghost" onClick={() => setShowForm(true)} disabled={busy} style={{ justifyContent: 'center' }}>
+            <Plus size={13} /> Add interview
+          </button>
+        )}
+      </div>
+      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
+        <button className="ff-btn" onClick={onCancel} disabled={busy}>Done</button>
+      </div>
+    </>
+  );
+};
+
+const PLUS_FEATURES = [
+  { icon: <FileCheck size={14} />, label: 'Styled PDF export', sub: 'Four ATS-clean templates: Jake\'s, Compact, Modern, Tech' },
+  { icon: <Search size={14} />,    label: 'Job description matcher', sub: 'Paste a JD, see which keywords your resume is missing' },
+  { icon: <Calendar size={14} />,  label: 'Interview tracker', sub: 'Log every round per application with dates and notes' },
+  { icon: <Sparkles size={14} />,  label: 'Everything in Free', sub: 'Unlimited versions, branching, diffs, callback analytics' },
+];
+
+const UpgradeModal = ({ onCancel }: any) => {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCheckout = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { url } = await api.billing.checkout();
+      window.location.href = url;
+    } catch (e: any) {
+      setError(e?.message || 'Failed to start checkout');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <ModalHeader
+        title="Upgrade to Plus"
+        subtitle="$9/month. 14-day free trial. Cancel anytime."
+        onClose={onCancel}
+      />
+      <div style={{ padding: '24px 28px' }}>
+        <div style={{
+          padding: 18,
+          border: '1px solid var(--accent)',
+          borderRadius: 4,
+          background: 'var(--accent-soft)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div className="ff-display ff-tabular" style={{ fontSize: 32, fontWeight: 600, color: 'var(--accent-2)', lineHeight: 1 }}>
+              $9
+            </div>
+            <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)' }}>/month</div>
+            <div className="ff-mono ff-label" style={{ marginLeft: 'auto', color: 'var(--green)' }}>
+              14-day free trial
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+          {PLUS_FEATURES.map((f) => (
+            <div key={f.label} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }}>{f.icon}</div>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>{f.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.45 }}>{f.sub}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {error && (
+          <div className="ff-mono" style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertCircle size={12} /> {error}
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
+        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={busy}>Maybe later</button>
+        <button className="ff-btn" onClick={handleCheckout} disabled={busy}>
+          {busy
+            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Redirecting…</>
+            : <><Sparkles size={13} /> Start 14-day free trial</>
           }
         </button>
       </div>

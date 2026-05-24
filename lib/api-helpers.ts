@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser, AuthError } from './supabase-server';
+import { PlusRequiredError } from './billing';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 
@@ -57,6 +58,12 @@ export const ApplicationUpdateSchema = ApplicationCreateSchema.partial();
 export function errorResponse(err: unknown) {
   if (err instanceof AuthError) {
     return NextResponse.json({ error: err.message }, { status: 401 });
+  }
+  if (err instanceof PlusRequiredError) {
+    return NextResponse.json(
+      { error: err.message, code: 'plus_required' },
+      { status: 402 }
+    );
   }
   if (err instanceof z.ZodError) {
     return NextResponse.json(

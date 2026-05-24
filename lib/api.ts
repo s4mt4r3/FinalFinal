@@ -100,6 +100,71 @@ export const api = {
 
     delete: (id: string) =>
       call<{ success: true }>(`/api/resumes/${id}`, { method: 'DELETE' }),
+
+    exportPdfHtml: async (id: string, template: string): Promise<string> => {
+      const res = await fetch(
+        `/api/resumes/export/pdf?id=${encodeURIComponent(id)}&template=${encodeURIComponent(template)}`
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new ApiError(
+          body.error ?? `Export failed: ${res.status}`,
+          res.status,
+          body.code ?? body.details
+        );
+      }
+      return res.text();
+    },
+
+    matchKeywords: (input: { resume_id?: string; resume_text?: string; job_text: string }) =>
+      call<{
+        matched: string[];
+        missing: string[];
+        score: number;
+        all_keywords: { term: string; count: number; matched: boolean }[];
+      }>('/api/resumes/match', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+  },
+
+  interviews: {
+    list: (applicationId?: string) =>
+      call<{ interviews: import('@/types/database').Interview[] }>(
+        '/api/interviews',
+        { params: { application_id: applicationId } }
+      ).then((r) => r.interviews),
+
+    create: (input: import('@/types/database').InterviewInsert) =>
+      call<{ interview: import('@/types/database').Interview }>(
+        '/api/interviews',
+        { method: 'POST', body: JSON.stringify(input) }
+      ).then((r) => r.interview),
+
+    update: (
+      id: string,
+      patch: import('@/types/database').InterviewUpdate
+    ) =>
+      call<{ interview: import('@/types/database').Interview }>(
+        `/api/interviews/${id}`,
+        { method: 'PATCH', body: JSON.stringify(patch) }
+      ).then((r) => r.interview),
+
+    delete: (id: string) =>
+      call<{ success: true }>(`/api/interviews/${id}`, { method: 'DELETE' }),
+  },
+
+  billing: {
+    status: () =>
+      call<{ tier: 'free' | 'plus'; current_period_end: string | null }>(
+        '/api/billing/status'
+      ),
+
+    checkout: () =>
+      call<{ url: string }>('/api/billing/checkout', { method: 'POST' }),
+
+    portal: () =>
+      call<{ url: string }>('/api/billing/portal', { method: 'POST' }),
   },
 
   applications: {
