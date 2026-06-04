@@ -117,7 +117,7 @@ export default function LoginPage() {
             Final<span style={{ color: 'var(--accent)' }} className="ff-italic">Final</span>
           </div>
           <div className="ff-mono ff-label" style={{ marginTop: 8, color: 'var(--ink-3)' }}>
-            resume version control
+            resume composer
           </div>
         </div>
 

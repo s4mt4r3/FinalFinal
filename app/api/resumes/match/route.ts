@@ -10,7 +10,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { route } from '@/lib/api-helpers';
-import { requirePlus } from '@/lib/billing';
 import { matchKeywords } from '@/lib/keyword-matcher';
 
 const BodySchema = z
@@ -23,9 +22,7 @@ const BodySchema = z
     message: 'Provide either resume_id or resume_text.',
   });
 
-export const POST = route(async ({ supabase, user, request }) => {
-  await requirePlus(supabase, user.id);
-
+export const POST = route(async ({ supabase, request }) => {
   const body = await request.json();
   const input = BodySchema.parse(body);
 

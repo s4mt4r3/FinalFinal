@@ -4,8 +4,8 @@ import { headers } from 'next/headers';
 import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export const metadata: Metadata = {
-  title: 'FinalFinal — Resume VCS',
-  description: 'Version control for your resume',
+  title: 'FinalFinal — Resume Composer',
+  description: 'Section-based resume composer',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

@@ -10,7 +10,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser, AuthError } from './supabase-server';
-import { PlusRequiredError } from './billing';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 
@@ -29,9 +28,42 @@ export const ResumeCreateSchema = z.object({
   tags: z.array(z.string().max(40)).max(20).default([]),
   notes: z.string().max(2000).default(''),
   source_file_path: z.string().max(500).nullable().optional(),
+  // Composition: ordered section-variant ids that make up this resume.
+  sections: z.array(z.string().uuid()).max(40).optional(),
 });
 
 export const ResumeUpdateSchema = ResumeCreateSchema.partial();
+
+// ------------------------------------------------------------
+// Section variant schemas
+// ------------------------------------------------------------
+export const SectionKindSchema = z.enum([
+  'header',
+  'education',
+  'coursework',
+  'experience',
+  'projects',
+  'skills',
+  'leadership',
+]);
+
+// `data` is structured JSON whose shape depends on kind; we keep
+// the SQL/zod boundary permissive (a JSON object up to a sane size)
+// and rely on the typed editors + renderers for shape correctness.
+const JsonObject = z.record(z.string(), z.unknown());
+
+export const SectionCreateSchema = z.object({
+  kind: SectionKindSchema,
+  label: z.string().trim().min(1).max(120),
+  data: JsonObject.default({}),
+});
+
+export const SectionUpdateSchema = z
+  .object({
+    label: z.string().trim().min(1).max(120),
+    data: JsonObject,
+  })
+  .partial();
 
 export const ApplicationStatusSchema = z.enum([
   'applied',
@@ -58,12 +90,6 @@ export const ApplicationUpdateSchema = ApplicationCreateSchema.partial();
 export function errorResponse(err: unknown) {
   if (err instanceof AuthError) {
     return NextResponse.json({ error: err.message }, { status: 401 });
-  }
-  if (err instanceof PlusRequiredError) {
-    return NextResponse.json(
-      { error: err.message, code: 'plus_required' },
-      { status: 402 }
-    );
   }
   if (err instanceof z.ZodError) {
     return NextResponse.json(

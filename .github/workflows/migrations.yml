@@ -1,0 +1,44 @@
+name: DB Migrations
+
+# Applies Supabase migrations (supabase/migrations/*.sql) to your hosted
+# Postgres. Deliberately MANUAL (workflow_dispatch) — applying schema
+# changes to production should be an intentional click, never an automatic
+# side effect of merging code. Run it from the Actions tab AFTER the deploy
+# that depends on the new schema, or just before it for additive changes.
+#
+# Requires three repo secrets:
+#   SUPABASE_ACCESS_TOKEN  – supabase.com -> Account -> Access Tokens
+#   SUPABASE_PROJECT_REF   – your project ref (the subdomain of your API URL,
+#                            e.g. hizebnymbtodyzxipymb)
+#   SUPABASE_DB_PASSWORD   – the database password (Project Settings -> Database)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to confirm pushing migrations to production'
+        required: true
+        default: ''
+
+jobs:
+  migrate:
+    name: supabase db push
+    if: ${{ github.event.inputs.confirm == 'apply' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      - name: Push migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push

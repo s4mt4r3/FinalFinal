@@ -8,7 +8,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { route } from '@/lib/api-helpers';
-import { requirePlus } from '@/lib/billing';
 
 const InterviewKindSchema = z.string().trim().min(1).max(40).optional().nullable();
 const InterviewOutcomeSchema = z
@@ -24,9 +23,7 @@ const CreateSchema = z.object({
   outcome: InterviewOutcomeSchema,
 });
 
-export const GET = route(async ({ supabase, user, request }) => {
-  await requirePlus(supabase, user.id);
-
+export const GET = route(async ({ supabase, request }) => {
   const url = new URL(request.url);
   const application_id = url.searchParams.get('application_id') ?? undefined;
 
@@ -45,8 +42,6 @@ export const GET = route(async ({ supabase, user, request }) => {
 });
 
 export const POST = route(async ({ supabase, user, request }) => {
-  await requirePlus(supabase, user.id);
-
   const body = await request.json();
   const input = CreateSchema.parse(body);
 

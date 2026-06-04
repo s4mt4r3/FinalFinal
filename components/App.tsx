@@ -8,9 +8,11 @@ import {
   Calendar, Tag, AlertCircle, Check, Loader2, GitCommit,
   ArrowRight, Search, MoreHorizontal, Copy, ExternalLink,
   Sparkles, TrendingUp, FileCheck, Hash, Clock, Layers,
-  RefreshCw, MessageSquare, Filter, LogOut, Upload
+  RefreshCw, MessageSquare, Filter, LogOut, Upload, Eye, Info
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import Builder from './Builder';
+import SectionLibrary from './SectionLibrary';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip,
   Cell, PieChart, Pie, CartesianGrid
@@ -42,197 +44,15 @@ const shortHash = (id: string) => id.slice(0, 7);
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 
-/* ----------------------------- diff engine ----------------------------- */
-function diffLines(aText: string, bText: string) {
-  const a = (aText || '').split('\n');
-  const b = (bText || '').split('\n');
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
-      else dp[i][j] = dp[i - 1][j] >= dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1];
-    }
-  }
-  const out: { type: string; text: string }[] = [];
-  let i = m, j = n;
-  while (i > 0 && j > 0) {
-    if (a[i - 1] === b[j - 1]) {
-      out.push({ type: 'same', text: a[i - 1] });
-      i--; j--;
-    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
-      out.push({ type: 'removed', text: a[i - 1] });
-      i--;
-    } else {
-      out.push({ type: 'added', text: b[j - 1] });
-      j--;
-    }
-  }
-  while (i > 0) { out.push({ type: 'removed', text: a[i - 1] }); i--; }
-  while (j > 0) { out.push({ type: 'added', text: b[j - 1] }); j--; }
-  return out.reverse();
-}
-
-function diffStats(diff: { type: string; text: string }[]) {
-  let added = 0, removed = 0;
-  for (const d of diff) {
-    if (d.type === 'added') added++;
-    else if (d.type === 'removed') removed++;
-  }
-  return { added, removed };
-}
-
-/* ----------------------------- demo seed ----------------------------- */
-
-function makeDemoData() {
-  const now = Date.now();
-  const days = (n: number) => now - n * 86400000;
-
-  const masterId = uid();
-  const seId = uid();
-  const seV2 = uid();
-  const seGoogle = uid();
-  const qfId = uid();
-  const qfV2 = uid();
-
-  const master = `SAMIK TARE
-samik.tare@rutgers.edu | linkedin.com/in/samik-tare | github.com/s4mt4r3
-
-EDUCATION
-Rutgers University, Honors College — New Brunswick, NJ
-B.S. Computer Science & Mathematics, GPA 3.56
-Expected May 2028
-
-EXPERIENCE
-Ingredion — Data Science Extern
-Built GPT-4o ingredient classification pipeline.
-
-PROJECTS
-CLIP vs ResNet18 Benchmark
-Compared zero-shot CLIP against fine-tuned ResNet18 on CIFAR-10.
-
-SKILLS
-Python, C, Java, PyTorch, scikit-learn, Git, Linux`;
-
-  const seEng = master + `
-
-ADDITIONAL
-Member, ScarletAPIs (Rutgers CS competition team)`;
-
-  const seEngV2 = `SAMIK TARE
-samik.tare@rutgers.edu | linkedin.com/in/samik-tare | github.com/s4mt4r3
-
-EDUCATION
-Rutgers University, Honors College — New Brunswick, NJ
-B.S. Computer Science & Mathematics, GPA 3.56
-Expected May 2028
-
-EXPERIENCE
-Ingredion — Data Science Extern
-Built GPT-4o ingredient classification pipeline processing 12,000 SKUs.
-Reduced manual tagging time by 87%.
-
-PROJECTS
-CLIP vs ResNet18 Benchmark
-Compared zero-shot CLIP (90.6% acc, 50.4ms) against fine-tuned ResNet18 (78.8%, 4.6ms) on CIFAR-10.
-Quantified accuracy/latency/memory tradeoffs across deployment targets.
-
-RAISE-26 NLP Hackathon — Top 17 of 188 teams
-Built 7-model NLP pipeline analyzing 10,500 AI news articles.
-
-SKILLS
-Python, C, Java, PyTorch, scikit-learn, Git, Linux, Valgrind, GDB
-
-ADDITIONAL
-Member, ScarletAPIs (Rutgers CS competition team)`;
-
-  const seGoogleV = seEngV2.replace(
-    'SKILLS\nPython, C, Java, PyTorch, scikit-learn, Git, Linux, Valgrind, GDB',
-    'SKILLS\nPython, C++, Java, Go, PyTorch, TensorFlow, scikit-learn, Git, Linux, gRPC, Bazel'
-  ).replace(
-    'Built GPT-4o ingredient classification pipeline processing 12,000 SKUs.',
-    'Designed and shipped GPT-4o ingredient classification pipeline serving 12,000 SKUs in production.'
-  );
-
-  const qf = `SAMIK TARE
-samik.tare@rutgers.edu | linkedin.com/in/samik-tare | github.com/s4mt4r3
-
-EDUCATION
-Rutgers University, Honors College — New Brunswick, NJ
-B.S. Computer Science & Mathematics, GPA 3.56
-Coursework: Linear Optimization, Probability, Real Analysis
-
-EXPERIENCE
-Ingredion — Data Science Extern
-Built GPT-4o ingredient classification pipeline.
-
-PROJECTS
-Portfolio Optimizer — Prophet + Markowitz mean-variance
-13-ticker equity universe with annualized return forecasts.
-
-SKILLS
-Python, C, Java, NumPy, pandas, scikit-learn, Git, Linux`;
-
-  const qfV2T = `SAMIK TARE
-samik.tare@rutgers.edu | linkedin.com/in/samik-tare | github.com/s4mt4r3
-
-EDUCATION
-Rutgers University, Honors College — New Brunswick, NJ
-B.S. Computer Science & Mathematics, GPA 3.56
-Coursework: Linear Optimization, Probability, Real Analysis, Stochastic Processes
-
-EXPERIENCE
-Ingredion — Data Science Extern
-Built GPT-4o ingredient classification pipeline processing 12,000 SKUs.
-
-PROJECTS
-Portfolio Optimizer — Prophet + Markowitz mean-variance
-13-ticker equity universe with annualized return forecasts, Streamlit deployment, CI/CD via GitHub Actions.
-Identified and corrected one-day vs annualized return scaling bug.
-
-Airfoil Surrogate MLP
-Two-layer MLP achieving R²=0.997 (CL) and R²=0.996 (CD) on 500-sample thin-airfoil dataset.
-
-SKILLS
-Python, C, Java, NumPy, pandas, scikit-learn, Bloomberg Terminal, KDB+/q, Git, Linux`;
-
-  const resumes: Record<string, any> = {
-    [masterId]: { id: masterId, name: 'Master Resume', content: master, parentId: null, createdAt: days(45), tags: ['master'], notes: 'Source of truth. All other versions branch from here.' },
-    [seId]: { id: seId, name: 'Software Engineering', content: seEng, parentId: masterId, createdAt: days(38), tags: ['swe'], notes: '' },
-    [seV2]: { id: seV2, name: 'SWE — Quantified Bullets', content: seEngV2, parentId: seId, createdAt: days(21), tags: ['swe'], notes: 'Added metrics to every bullet after career center feedback.' },
-    [seGoogle]: { id: seGoogle, name: 'SWE — Google Tailored', content: seGoogleV, parentId: seV2, createdAt: days(12), tags: ['swe', 'google'], notes: 'Swapped in C++/Go/Bazel for Google application.' },
-    [qfId]: { id: qfId, name: 'Quant / Finance', content: qf, parentId: masterId, createdAt: days(34), tags: ['quant'], notes: '' },
-    [qfV2]: { id: qfV2, name: 'Quant — Coursework Stack', content: qfV2T, parentId: qfId, createdAt: days(9), tags: ['quant', 'citadel'], notes: 'Front-loaded math coursework and added Bloomberg/KDB keywords.' },
-  };
-
-  const apps: Record<string, any> = {};
-  const mk = (company: string, role: string, resumeId: string, status: string, daysAgo: number, notes = '') => {
-    const id = uid();
-    apps[id] = { id, company, role, resumeId, status, dateApplied: days(daysAgo), notes };
-  };
-  mk('Google', 'SWE Intern', seGoogle, 'interviewing', 8, 'OA passed. Onsite scheduled for next week.');
-  mk('Meta', 'SWE Intern', seV2, 'rejected', 15, 'No response after OA.');
-  mk('Stripe', 'SWE Intern', seV2, 'applied', 6);
-  mk('Citadel', 'Quant Intern', qfV2, 'offer', 4, 'Verbal offer extended after superday.');
-  mk('Jane Street', 'Quant Trader Intern', qfV2, 'interviewing', 7);
-  mk('Two Sigma', 'Quant Researcher', qfId, 'ghosted', 28);
-  mk('Jump Trading', 'SWE Intern', seGoogle, 'applied', 3);
-
-  return { resumes, applications: apps, rootId: masterId, version: 1 };
-}
 
 /* ----------------------------- data loading ----------------------------- */
 
 async function loadData() {
-  const [resumes, applications, interviews, billing] = await Promise.all([
+  const [resumes, variants, applications, interviews] = await Promise.all([
     api.resumes.list(),
+    api.sections.list().catch(() => []),
     api.applications.list(),
-    api.interviews.list().catch((e) => {
-      // Free tier: gate is closed → treat as no interviews
-      if (e instanceof ApiError && e.status === 402) return [];
-      throw e;
-    }),
-    api.billing.status().catch(() => ({ tier: 'free' as const, current_period_end: null, status: null })),
+    api.interviews.list().catch(() => []),
   ]);
 
   const resumesObj = Object.fromEntries(
@@ -266,43 +86,13 @@ async function loadData() {
     });
   }
 
-  const rootId = resumes.find((r: any) => !r.parent_id)?.id ?? null;
-
   return {
     resumes: resumesObj,
+    variants,
     applications: applicationsObj,
     interviewsByApp,
-    billing,
-    rootId,
     version: 1,
   };
-}
-
-/* ----------------------------- tree helpers ----------------------------- */
-
-function buildTree(resumes: Record<string, any>) {
-  const childrenOf: Record<string, string[]> = {};
-  const roots: string[] = [];
-  Object.values(resumes).forEach((r: any) => {
-    if (r.parentId && resumes[r.parentId]) {
-      (childrenOf[r.parentId] ||= []).push(r.id);
-    } else {
-      roots.push(r.id);
-    }
-  });
-  for (const k of Object.keys(childrenOf)) {
-    childrenOf[k].sort((a, b) => resumes[a].createdAt - resumes[b].createdAt);
-  }
-  roots.sort((a, b) => resumes[a].createdAt - resumes[b].createdAt);
-  return { roots, childrenOf };
-}
-
-function descendants(resumes: Record<string, any>, id: string, acc = new Set<string>()) {
-  acc.add(id);
-  for (const r of Object.values(resumes)) {
-    if (r.parentId === id) descendants(resumes, r.id, acc);
-  }
-  return acc;
 }
 
 /* ----------------------------- styles ----------------------------- */
@@ -504,6 +294,7 @@ const STYLES = `
     box-shadow: 0 20px 60px -20px rgba(0,0,0,0.4);
   }
   .ff-modal-wide { max-width: 880px; }
+  .ff-modal-xwide { max-width: 1040px; }
 `;
 
 /* ----------------------------- icon helper ----------------------------- */
@@ -528,15 +319,14 @@ const StatusChip = ({ status }: { status: string }) => (
 
 const App = () => {
   const router = useRouter();
-  const [data, setData] = useState<any>({ resumes: {}, applications: {}, interviewsByApp: {}, billing: { tier: 'free' }, rootId: null });
+  const [data, setData] = useState<any>({ resumes: {}, variants: [], applications: {}, interviewsByApp: {} });
   const [view, setView] = useState('dashboard');
+  const [builderResumeId, setBuilderResumeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState<any>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
   const [submitting, setSubmitting] = useState(false);
-  const [compareA, setCompareA] = useState<string | null>(null);
-  const [compareB, setCompareB] = useState<string | null>(null);
 
   const signOut = async () => {
     await api.auth.signOut();
@@ -567,7 +357,7 @@ const App = () => {
           window.location.href = '/login';
           return;
         }
-        setData({ resumes: {}, applications: {}, interviewsByApp: {}, billing: { tier: 'free', current_period_end: null, status: null }, rootId: null, version: 1 });
+        setData({ resumes: {}, variants: [], applications: {}, interviewsByApp: {}, version: 1 });
         flash(e instanceof Error ? e.message : 'Failed to load data', 'error');
       } finally {
         setLoading(false);
@@ -580,64 +370,6 @@ const App = () => {
     setData(existing);
   };
 
-  const createResume = async ({ name, content, parentId, tags, notes }: any) => {
-    setSubmitting(true);
-    try {
-      const created = await api.resumes.create({
-        name: name.trim() || 'Untitled',
-        content: content || '',
-        parent_id: parentId || null,
-        tags: tags || [],
-        notes: notes || '',
-      });
-      await reloadData();
-      flash(`Created "${name}"`);
-      return created.id;
-    } catch (e) {
-      handleError(e);
-      throw e;
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const updateResume = async (id: string, patch: any) => {
-    const updatePayload: any = {};
-    if (patch.name !== undefined) updatePayload.name = patch.name;
-    if (patch.content !== undefined) updatePayload.content = patch.content;
-    if (patch.tags !== undefined) updatePayload.tags = patch.tags;
-    if (patch.notes !== undefined) updatePayload.notes = patch.notes;
-
-    setSubmitting(true);
-    try {
-      await api.resumes.update(id, updatePayload);
-      await reloadData();
-    } catch (e) {
-      handleError(e);
-      throw e;
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const deleteResume = async (id: string) => {
-    const toDelete = descendants(data.resumes, id);
-    const count = toDelete.size;
-
-    setSubmitting(true);
-    try {
-      for (const rid of toDelete) {
-        await api.resumes.delete(rid);
-      }
-      await reloadData();
-      flash(`Deleted ${count} version${count === 1 ? '' : 's'}`);
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const createApplication = async (app: any) => {
     setSubmitting(true);
     try {
@@ -647,7 +379,7 @@ const App = () => {
         status: app.status,
         notes: app.notes || '',
         resume_id: app.resumeId || null,
-        date_applied: app.dateApplied || new Date().toISOString(),
+        date_applied: app.dateApplied ? new Date(app.dateApplied).toISOString() : new Date().toISOString(),
       });
       await reloadData();
       flash(`Tracked application to ${app.company}`);
@@ -693,65 +425,10 @@ const App = () => {
     }
   };
 
-  const resetDemo = async () => {
-    const demo = makeDemoData();
-
-    setSubmitting(true);
-    try {
-      // Resumes form a tree: insert parents before children so each child's
-      // parent_id can be remapped from the demo's local UUID to the freshly
-      // generated DB UUID. Without this remap, the parent_id RLS check fails
-      // because the local UUID doesn't exist in the resumes table.
-      const localToDbId: Record<string, string> = {};
-      const remaining = new Map<string, any>(Object.entries(demo.resumes));
-      while (remaining.size > 0) {
-        let progressed = false;
-        for (const [localId, resume] of Array.from(remaining)) {
-          const parentReady =
-            !resume.parentId || localToDbId[resume.parentId];
-          if (!parentReady) continue;
-          const created = await api.resumes.create({
-            name: resume.name,
-            content: resume.content,
-            parent_id: resume.parentId ? localToDbId[resume.parentId] : null,
-            tags: resume.tags || [],
-            notes: resume.notes || '',
-          });
-          localToDbId[localId] = created.id;
-          remaining.delete(localId);
-          progressed = true;
-        }
-        if (!progressed) {
-          throw new Error('Demo data has a cyclic or dangling parent reference');
-        }
-      }
-
-      // Now insert applications, remapping each app's resume_id to the DB id.
-      for (const app of Object.values(demo.applications) as any[]) {
-        await api.applications.create({
-          company: app.company,
-          role: app.role,
-          status: app.status,
-          notes: app.notes || '',
-          resume_id: app.resumeId ? localToDbId[app.resumeId] ?? null : null,
-          date_applied: new Date(app.dateApplied).toISOString(),
-        });
-      }
-
-      await reloadData();
-      setCompareA(null);
-      setCompareB(null);
-      flash('Reset to demo data');
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const wipe = async () => {
     const allResumes = Object.keys(data.resumes);
     const allApps = Object.keys(data.applications);
+    const allVariants = (data.variants as any[]).map((v) => v.id);
 
     setSubmitting(true);
     try {
@@ -761,10 +438,11 @@ const App = () => {
       for (const resumeId of allResumes) {
         await api.resumes.delete(resumeId);
       }
+      for (const variantId of allVariants) {
+        await api.sections.delete(variantId);
+      }
 
       await reloadData();
-      setCompareA(null);
-      setCompareB(null);
       flash('All data cleared');
     } catch (e) {
       handleError(e);
@@ -802,14 +480,14 @@ const App = () => {
               Final<span style={{ color: 'var(--accent)' }} className="ff-italic">Final</span>
             </div>
             <div className="ff-mono ff-label" style={{ marginTop: 6, color: 'var(--ink-3)' }}>
-              v1.0 · resume vcs
+              v1.0 · resume composer
             </div>
           </div>
 
           <nav style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <NavItem icon={<BarChart3 size={15} />} label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />
-            <NavItem icon={<GitBranch size={15} />} label="Versions" active={view === 'versions'} onClick={() => setView('versions')} />
-            <NavItem icon={<GitCompare size={15} />} label="Compare" active={view === 'compare'} onClick={() => setView('compare')} />
+            <NavItem icon={<FileText size={15} />} label="Builder" active={view === 'builder'} onClick={() => { setBuilderResumeId(null); setView('builder'); }} />
+            <NavItem icon={<Layers size={15} />} label="Sections" active={view === 'sections'} onClick={() => setView('sections')} />
             <NavItem icon={<Briefcase size={15} />} label="Applications" active={view === 'applications'} onClick={() => setView('applications')} />
             <NavItem icon={<TrendingUp size={15} />} label="Analytics" active={view === 'analytics'} onClick={() => setView('analytics')} />
           </nav>
@@ -821,29 +499,7 @@ const App = () => {
             <Glance data={data} />
           </div>
 
-          <div style={{ marginTop: 28 }}>
-            <BillingCard
-              tier={data.billing?.tier || 'free'}
-              periodEnd={data.billing?.current_period_end}
-              onUpgrade={() => setModal({ type: 'upgrade' })}
-              onManage={async () => {
-                try {
-                  const { url } = await api.billing.portal();
-                  window.location.href = url;
-                } catch (e) {
-                  handleError(e);
-                }
-              }}
-            />
-          </div>
-
           <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
-            <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }} onClick={resetDemo} disabled={submitting}>
-              <RefreshCw size={11} /> Reload demo
-            </button>
-            <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center', color: 'var(--red)', marginBottom: 8 }} onClick={() => setModal({ type: 'confirmWipe' })} disabled={submitting}>
-              Wipe all data
-            </button>
             <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={signOut}>
               <LogOut size={11} /> Sign out
             </button>
@@ -857,29 +513,24 @@ const App = () => {
               data={data}
               setView={setView}
               openModal={setModal}
-              setCompareA={setCompareA}
-              setCompareB={setCompareB}
               submitting={submitting}
+              onOpenResume={(id: string) => { setBuilderResumeId(id); setView('builder'); }}
             />
           )}
-          {view === 'versions' && (
-            <Versions
-              data={data}
-              openModal={setModal}
-              setCompareA={setCompareA}
-              setCompareB={setCompareB}
-              setView={setView}
-              deleteResume={deleteResume}
-              submitting={submitting}
+          {view === 'builder' && (
+            <Builder
+              resumes={data.resumes}
+              variants={data.variants}
+              onReload={reloadData}
+              onFlash={flash}
+              initialResumeId={builderResumeId}
             />
           )}
-          {view === 'compare' && (
-            <Compare
-              data={data}
-              compareA={compareA}
-              compareB={compareB}
-              setCompareA={setCompareA}
-              setCompareB={setCompareB}
+          {view === 'sections' && (
+            <SectionLibrary
+              variants={data.variants}
+              onReload={reloadData}
+              onFlash={flash}
             />
           )}
           {view === 'applications' && (
@@ -902,9 +553,6 @@ const App = () => {
           modal={modal}
           close={() => setModal(null)}
           data={data}
-          createResume={createResume}
-          updateResume={updateResume}
-          deleteResume={deleteResume}
           createApplication={createApplication}
           updateApplication={updateApplication}
           wipe={wipe}
@@ -935,50 +583,6 @@ const App = () => {
   );
 };
 
-/* ----------------------------- billing card ----------------------------- */
-const BillingCard = ({ tier, periodEnd, onUpgrade, onManage }: any) => {
-  const isPlus = tier === 'plus';
-  return (
-    <div style={{
-      border: '1px solid ' + (isPlus ? 'var(--accent)' : 'var(--line-2)'),
-      background: isPlus ? 'var(--accent-soft)' : 'var(--paper-2)',
-      borderRadius: 4,
-      padding: 14,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Sparkles size={13} style={{ color: isPlus ? 'var(--accent)' : 'var(--ink-3)' }} />
-        <span className="ff-mono ff-label" style={{ color: isPlus ? 'var(--accent-2)' : 'var(--ink-3)' }}>
-          {isPlus ? 'Plus' : 'Free'}
-        </span>
-      </div>
-      {isPlus ? (
-        <>
-          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, lineHeight: 1.4 }}>
-            All Plus features unlocked.
-          </div>
-          {periodEnd && (
-            <div className="ff-mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 6 }}>
-              Renews {new Date(periodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </div>
-          )}
-          <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={onManage} style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}>
-            Manage billing
-          </button>
-        </>
-      ) : (
-        <>
-          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, lineHeight: 1.4 }}>
-            Unlock styled PDFs, JD matching, and interview tracking.
-          </div>
-          <button className="ff-btn ff-btn-sm" onClick={onUpgrade} style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}>
-            <Sparkles size={11} /> Upgrade
-          </button>
-        </>
-      )}
-    </div>
-  );
-};
-
 /* ----------------------------- nav item ----------------------------- */
 const NavItem = ({ icon, label, active, onClick }: any) => (
   <div className={`ff-nav-item ${active ? 'ff-nav-item-active' : ''}`} onClick={onClick}>
@@ -989,14 +593,14 @@ const NavItem = ({ icon, label, active, onClick }: any) => (
 );
 
 const Glance = ({ data }: any) => {
-  const versionCount = Object.keys(data.resumes).length;
+  const resumeCount = Object.keys(data.resumes).length;
+  const variantCount = (data.variants || []).length;
   const appCount = Object.keys(data.applications).length;
-  const interviews = Object.values(data.applications).filter((a: any) => a.status === 'interviewing' || a.status === 'offer').length;
   return (
     <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <Stat n={versionCount} label="versions" />
-      <Stat n={appCount} label="applications" />
-      <Stat n={interviews} label="active leads" accent />
+      <Stat n={resumeCount} label="resumes" />
+      <Stat n={variantCount} label="section variants" />
+      <Stat n={appCount} label="applications" accent />
     </div>
   );
 };
@@ -1014,7 +618,7 @@ const Stat = ({ n, label, accent }: any) => (
    DASHBOARD
    =================================================================== */
 
-const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitting }: any) => {
+const Dashboard = ({ data, setView, openModal, submitting, onOpenResume }: any) => {
   const resumes = Object.values(data.resumes).sort((a: any, b: any) => b.createdAt - a.createdAt);
   const apps = Object.values(data.applications).sort((a: any, b: any) => b.dateApplied - a.dateApplied);
   const recent = resumes.slice(0, 4);
@@ -1028,19 +632,19 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitt
       <Header
         kicker="Overview"
         title="Welcome back."
-        subtitle="Your resume history, applications, and what's working — in one place."
+        subtitle="Compose tailored resumes from reusable sections, track applications, and see what's working."
         action={
-          <button className="ff-btn" onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })} disabled={submitting}>
+          <button className="ff-btn" onClick={() => setView('builder')} disabled={submitting}>
             <Plus size={13} /> New resume
           </button>
         }
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 36 }}>
-        <BigStat label="Versions tracked" value={Object.keys(data.resumes).length} sub="across all branches" />
+        <BigStat label="Resumes" value={Object.keys(data.resumes).length} sub="tailored compositions" />
+        <BigStat label="Section variants" value={(data.variants || []).length} sub="in your library" />
         <BigStat label="Applications" value={Object.keys(data.applications).length} sub="this cycle" />
         <BigStat label="Active leads" value={(apps as any[]).filter((a: any) => a.status === 'interviewing').length} sub="interviewing" accent />
-        <BigStat label="Offers" value={(apps as any[]).filter((a: any) => a.status === 'offer').length} sub="received" />
       </div>
 
       {best && (
@@ -1056,7 +660,7 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitt
               What's working
             </div>
             <div className="ff-display" style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-              <span className="ff-italic">"{best.name}"</span> is your highest-performing version.
+              <span className="ff-italic">"{best.name}"</span> is your highest-performing resume.
             </div>
             <div style={{ color: 'var(--ink-2)', marginTop: 12, fontSize: 15, lineHeight: 1.6 }}>
               {best.applied} applications sent, {best.callbacks} callback{best.callbacks === 1 ? '' : 's'} — a{' '}
@@ -1068,9 +672,9 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitt
             <button
               className="ff-btn ff-btn-ghost"
               style={{ marginTop: 18 }}
-              onClick={() => { setView('versions'); }}
+              onClick={() => onOpenResume(best.id)}
             >
-              View version <ArrowRight size={12} />
+              Open in builder <ArrowRight size={12} />
             </button>
           </div>
         </div>
@@ -1078,24 +682,20 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitt
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 24, marginTop: 32 }}>
         <div>
-          <SectionHeader title="Recent versions" onAction={() => setView('versions')} actionLabel="All versions" />
+          <SectionHeader title="Recent resumes" onAction={() => setView('builder')} actionLabel="All resumes" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
-            {recent.length === 0 && <EmptyHint text="No versions yet. Create your master resume to start." />}
+            {recent.length === 0 && <EmptyHint text="No resumes yet. Build your sections, then compose one." />}
             {(recent as any[]).map((r: any) => (
-              <div key={r.id} className="ff-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                <GitCommit size={15} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
+              <div key={r.id} className="ff-card" onClick={() => onOpenResume(r.id)} style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
+                <FileText size={15} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <div style={{ fontSize: 15, fontWeight: 500 }}>{r.name}</div>
-                    <div className="ff-mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
-                      {shortHash(r.id)}
-                    </div>
-                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 500 }}>{r.name}</div>
                   <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                    {r.parentId ? `branched from ${data.resumes[r.parentId]?.name || '—'}` : 'root'} · {fmtDate(r.createdAt)}
+                    {fmtDate(r.createdAt)}
                   </div>
                 </div>
                 {r.tags && r.tags.map((t: string) => <span key={t} className="ff-chip">{t}</span>)}
+                <ArrowRight size={12} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
               </div>
             ))}
           </div>
@@ -1108,7 +708,7 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitt
             {(recentApps as any[]).map((a: any) => {
               const r = a.resumeId && data.resumes[a.resumeId];
               return (
-                <div key={a.id} className="ff-card" style={{ padding: '14px 16px' }}>
+                <div key={a.id} className="ff-card" onClick={() => openModal({ type: 'editApplication', payload: a })} style={{ padding: '14px 16px', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <StatusDot status={a.status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1118,6 +718,7 @@ const Dashboard = ({ data, setView, openModal, setCompareA, setCompareB, submitt
                       </div>
                     </div>
                     <StatusChip status={a.status} />
+                    <ArrowRight size={12} style={{ color: 'var(--ink-3)', flexShrink: 0 }} />
                   </div>
                   {r && (
                     <div className="ff-mono" style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 8, paddingLeft: 17 }}>
@@ -1174,436 +775,6 @@ const EmptyHint = ({ text }: any) => (
     {text}
   </div>
 );
-
-/* ===================================================================
-   VERSIONS — tree view
-   =================================================================== */
-
-const Versions = ({ data, openModal, setCompareA, setCompareB, setView, deleteResume, submitting }: any) => {
-  const { roots, childrenOf } = useMemo(() => buildTree(data.resumes), [data.resumes]);
-  const [expanded, setExpanded] = useState(() => new Set(Object.keys(data.resumes)));
-  const [selectedId, setSelectedId] = useState<string | null>(roots[0] || null);
-
-  useEffect(() => {
-    setExpanded(new Set(Object.keys(data.resumes)));
-  }, [data.resumes]);
-
-  const toggle = (id: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const selected = selectedId && data.resumes[selectedId];
-  const appsForSelected = selected ? Object.values(data.applications).filter((a: any) => a.resumeId === selected.id) : [];
-
-  return (
-    <div className="ff-fade">
-      <Header
-        kicker="Version history"
-        title="Your resume tree."
-        subtitle="Every branch, every commit. Click a version to inspect, edit, or branch from it."
-        action={
-          <button className="ff-btn" onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })} disabled={submitting}>
-            <Plus size={13} /> New root
-          </button>
-        }
-      />
-
-      {roots.length === 0 ? (
-        <div style={{ marginTop: 60, textAlign: 'center', padding: 40 }}>
-          <FileText size={32} style={{ color: 'var(--ink-3)' }} />
-          <div className="ff-display" style={{ fontSize: 22, marginTop: 16, fontWeight: 500 }}>No versions yet</div>
-          <div style={{ color: 'var(--ink-3)', marginTop: 8, fontSize: 14 }}>Create your master resume to get started.</div>
-          <button className="ff-btn" style={{ marginTop: 20 }} onClick={() => openModal({ type: 'newResume', payload: { parentId: null } })} disabled={submitting}>
-            <Plus size={13} /> Create master resume
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginTop: 36 }}>
-          <div>
-            <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 16 }}>Tree</div>
-            <div className="ff-card" style={{ padding: '18px 14px' }}>
-              {roots.map(id => (
-                <TreeNode
-                  key={id}
-                  id={id}
-                  data={data}
-                  childrenOf={childrenOf}
-                  depth={0}
-                  expanded={expanded}
-                  toggle={toggle}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
-                  isLastChild
-                />
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 16 }}>Inspect</div>
-            {!selected ? (
-              <div className="ff-card" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)' }}>
-                Select a version from the tree
-              </div>
-            ) : (
-              <VersionDetail
-                resume={selected}
-                parent={selected.parentId ? data.resumes[selected.parentId] : null}
-                apps={appsForSelected}
-                allResumes={data.resumes}
-                openModal={openModal}
-                submitting={submitting}
-                onCompare={(against: string) => {
-                  setCompareA(against);
-                  setCompareB(selected.id);
-                  setView('compare');
-                }}
-                onDelete={() => {
-                  if (confirm(`Delete "${selected.name}" and all branches under it?`)) {
-                    deleteResume(selected.id);
-                    setSelectedId(null);
-                  }
-                }}
-              />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const TreeNode = ({ id, data, childrenOf, depth, expanded, toggle, selectedId, onSelect, isLastChild }: any) => {
-  const r = data.resumes[id];
-  if (!r) return null;
-  const kids = childrenOf[id] || [];
-  const isOpen = expanded.has(id);
-  const isSelected = selectedId === id;
-
-  return (
-    <div>
-      <div
-        onClick={() => onSelect(id)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 10px',
-          marginLeft: depth * 24,
-          borderRadius: 3,
-          cursor: 'pointer',
-          background: isSelected ? 'var(--ink)' : 'transparent',
-          color: isSelected ? 'var(--paper)' : 'var(--ink)',
-          border: '1px solid ' + (isSelected ? 'var(--ink)' : 'transparent'),
-          transition: 'background 120ms, color 120ms',
-          position: 'relative',
-        }}
-        onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = 'var(--paper-3)'; }}
-        onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
-      >
-        {depth > 0 && (
-          <div style={{
-            position: 'absolute',
-            left: -24 * depth + 18,
-            top: 0,
-            bottom: 0,
-            display: 'flex',
-            alignItems: 'center',
-          }}>
-            <div style={{ width: 12, height: 1, background: 'var(--line-2)' }} />
-          </div>
-        )}
-
-        {kids.length > 0 ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); toggle(id); }}
-            style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center' }}
-          >
-            {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
-        ) : (
-          <span style={{ width: 13, display: 'inline-block' }}>
-            <GitCommit size={11} style={{ opacity: 0.6 }} />
-          </span>
-        )}
-
-        <span style={{ fontSize: 13.5, fontWeight: 500, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {r.name}
-        </span>
-
-        <span className="ff-mono" style={{ fontSize: 10, opacity: isSelected ? 0.7 : 0.5 }}>
-          {shortHash(id)}
-        </span>
-      </div>
-
-      {isOpen && kids.map((kid: string, idx: number) => (
-        <TreeNode
-          key={kid}
-          id={kid}
-          data={data}
-          childrenOf={childrenOf}
-          depth={depth + 1}
-          expanded={expanded}
-          toggle={toggle}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          isLastChild={idx === kids.length - 1}
-        />
-      ))}
-    </div>
-  );
-};
-
-const VersionDetail = ({ resume, parent, apps, allResumes, openModal, onCompare, onDelete, submitting }: any) => {
-  const [showFull, setShowFull] = useState(false);
-  const lineCount = resume.content.split('\n').length;
-  const wordCount = resume.content.split(/\s+/).filter(Boolean).length;
-
-  const exportTxt = () => {
-    const blob = new Blob([resume.content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${slug(resume.name)}_${new Date(resume.createdAt).toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="ff-card" style={{ padding: 22 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 6 }}>
-            commit {shortHash(resume.id)} · {fmtDateLong(resume.createdAt)}
-          </div>
-          <div className="ff-display" style={{ fontSize: 24, fontWeight: 500, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-            {resume.name}
-          </div>
-          {parent ? (
-            <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6 }}>
-              <GitBranch size={11} style={{ display: 'inline', verticalAlign: -1, marginRight: 4 }} />
-              branched from <span style={{ color: 'var(--ink)' }}>{parent.name}</span>
-            </div>
-          ) : (
-            <div className="ff-mono" style={{ fontSize: 11, color: 'var(--accent)', marginTop: 6 }}>
-              <Layers size={11} style={{ display: 'inline', verticalAlign: -1, marginRight: 4 }} />
-              root version
-            </div>
-          )}
-        </div>
-      </div>
-
-      {resume.tags && resume.tags.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 14 }}>
-          {resume.tags.map((t: string) => <span key={t} className="ff-chip"><Tag size={9} />{t}</span>)}
-        </div>
-      )}
-
-      {resume.notes && (
-        <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--paper-3)', borderLeft: '2px solid var(--accent)', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
-          <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 6 }}>
-            <MessageSquare size={10} style={{ display: 'inline', verticalAlign: -1, marginRight: 5 }} />
-            note
-          </div>
-          {resume.notes}
-        </div>
-      )}
-
-      <div className="ff-mono" style={{ display: 'flex', gap: 18, marginTop: 16, fontSize: 11, color: 'var(--ink-3)' }}>
-        <span><Hash size={10} style={{ display: 'inline', verticalAlign: -1, marginRight: 4 }} />{lineCount} lines</span>
-        <span>{wordCount} words</span>
-        <span><Briefcase size={10} style={{ display: 'inline', verticalAlign: -1, marginRight: 4 }} />{apps.length} apps</span>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 8 }}>Content</div>
-        <pre className="ff-mono ff-scroll" style={{
-          background: 'var(--paper-3)', padding: 14, borderRadius: 3,
-          fontSize: 11.5, lineHeight: 1.55, color: 'var(--ink)',
-          maxHeight: showFull ? 'none' : 200, overflowY: 'auto',
-          margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          border: '1px solid var(--line)'
-        }}>
-          {resume.content || '(empty)'}
-        </pre>
-        {resume.content.split('\n').length > 8 && (
-          <button className="ff-link ff-mono" style={{ background: 'none', border: 'none', fontSize: 11, marginTop: 8 }} onClick={() => setShowFull((s: boolean) => !s)}>
-            {showFull ? 'Collapse' : 'Show full'}
-          </button>
-        )}
-      </div>
-
-      {apps.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)', marginBottom: 8 }}>Used for ({apps.length})</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {(apps as any[]).map((a: any) => (
-              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-                <StatusDot status={a.status} />
-                <span style={{ fontWeight: 500 }}>{a.company}</span>
-                <span style={{ color: 'var(--ink-3)' }}>· {a.role}</span>
-                <span className="ff-mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginLeft: 'auto' }}>{a.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
-        <button className="ff-btn ff-btn-sm" onClick={() => openModal({ type: 'newResume', payload: { parentId: resume.id, prefill: resume.content } })} disabled={submitting}>
-          <GitBranch size={11} /> Branch
-        </button>
-        <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => openModal({ type: 'editResume', payload: resume })} disabled={submitting}>
-          <Edit3 size={11} /> Edit
-        </button>
-        {parent && (
-          <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={() => onCompare(parent.id)} disabled={submitting}>
-            <GitCompare size={11} /> Diff with parent
-          </button>
-        )}
-        <button className="ff-btn ff-btn-ghost ff-btn-sm" onClick={exportTxt} disabled={submitting}>
-          <Download size={11} /> Export .txt
-        </button>
-        <button
-          className="ff-btn ff-btn-ghost ff-btn-sm"
-          onClick={() => openModal({ type: 'exportPdf', payload: resume })}
-          disabled={submitting}
-        >
-          <Sparkles size={11} /> Export PDF
-        </button>
-        <button
-          className="ff-btn ff-btn-ghost ff-btn-sm"
-          onClick={() => openModal({ type: 'matchKeywords', payload: resume })}
-          disabled={submitting}
-        >
-          <Search size={11} /> Match JD
-        </button>
-        <button className="ff-btn ff-btn-danger ff-btn-sm" onClick={onDelete} style={{ marginLeft: 'auto' }} disabled={submitting}>
-          <Trash2 size={11} /> Delete
-        </button>
-      </div>
-    </div>
-  );
-};
-
-/* ===================================================================
-   COMPARE
-   =================================================================== */
-
-const Compare = ({ data, compareA, compareB, setCompareA, setCompareB }: any) => {
-  const resumes = Object.values(data.resumes).sort((a: any, b: any) => b.createdAt - a.createdAt);
-
-  useEffect(() => {
-    if (!compareA && resumes.length >= 2) setCompareA((resumes[1] as any).id);
-    if (!compareB && resumes.length >= 1) setCompareB((resumes[0] as any).id);
-  }, []); // eslint-disable-line
-
-  const a = compareA && data.resumes[compareA];
-  const b = compareB && data.resumes[compareB];
-  const diff = useMemo(() => (a && b) ? diffLines(a.content, b.content) : [], [a, b]);
-  const stats = useMemo(() => diffStats(diff), [diff]);
-
-  const swap = () => {
-    setCompareA(compareB);
-    setCompareB(compareA);
-  };
-
-  return (
-    <div className="ff-fade">
-      <Header
-        kicker="Compare"
-        title="Spot the changes."
-        subtitle="Side-by-side line diff. Green is added in the right version, red is removed from the left."
-      />
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 16, alignItems: 'end', marginTop: 32 }}>
-        <div>
-          <div className="ff-mono ff-label" style={{ marginBottom: 8, color: 'var(--ink-3)' }}>From (base)</div>
-          <select className="ff-select" value={compareA || ''} onChange={e => setCompareA(e.target.value)}>
-            <option value="">— select —</option>
-            {(resumes as any[]).map((r: any) => (
-              <option key={r.id} value={r.id}>{r.name} · {shortHash(r.id)}</option>
-            ))}
-          </select>
-        </div>
-        <button className="ff-btn ff-btn-ghost" style={{ marginBottom: 1 }} onClick={swap} disabled={!a || !b}>
-          <RefreshCw size={12} /> Swap
-        </button>
-        <div>
-          <div className="ff-mono ff-label" style={{ marginBottom: 8, color: 'var(--ink-3)' }}>To (head)</div>
-          <select className="ff-select" value={compareB || ''} onChange={e => setCompareB(e.target.value)}>
-            <option value="">— select —</option>
-            {(resumes as any[]).map((r: any) => (
-              <option key={r.id} value={r.id}>{r.name} · {shortHash(r.id)}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {a && b && (
-        <>
-          <div className="ff-card" style={{ padding: '16px 22px', marginTop: 24, display: 'flex', alignItems: 'center', gap: 32 }}>
-            <div>
-              <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)' }}>Diff summary</div>
-              <div style={{ marginTop: 4, fontSize: 14 }}>
-                <span className="ff-mono ff-tabular" style={{ color: 'var(--green)', fontWeight: 600 }}>+{stats.added}</span>
-                {' '}<span style={{ color: 'var(--ink-3)' }}>added</span>
-                {' · '}
-                <span className="ff-mono ff-tabular" style={{ color: 'var(--red)', fontWeight: 600 }}>−{stats.removed}</span>
-                {' '}<span style={{ color: 'var(--ink-3)' }}>removed</span>
-              </div>
-            </div>
-            <div style={{ flex: 1, height: 6, background: 'var(--paper-3)', borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
-              {stats.added + stats.removed > 0 && (
-                <>
-                  <div style={{ background: 'var(--green)', height: '100%', width: `${(stats.added / (stats.added + stats.removed)) * 100}%` }} />
-                  <div style={{ background: 'var(--red)', height: '100%', width: `${(stats.removed / (stats.added + stats.removed)) * 100}%` }} />
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="ff-card" style={{ marginTop: 16, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ padding: '12px 16px', borderRight: '1px solid var(--line)', background: 'var(--paper-3)' }}>
-                <div className="ff-mono ff-label" style={{ color: 'var(--red)' }}>− base</div>
-                <div style={{ fontSize: 14, fontWeight: 500, marginTop: 2 }}>{a.name}</div>
-                <div className="ff-mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{shortHash(a.id)} · {fmtDate(a.createdAt)}</div>
-              </div>
-              <div style={{ padding: '12px 16px', background: 'var(--paper-3)' }}>
-                <div className="ff-mono ff-label" style={{ color: 'var(--green)' }}>+ head</div>
-                <div style={{ fontSize: 14, fontWeight: 500, marginTop: 2 }}>{b.name}</div>
-                <div className="ff-mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{shortHash(b.id)} · {fmtDate(b.createdAt)}</div>
-              </div>
-            </div>
-
-            <div className="ff-mono ff-scroll" style={{ background: 'var(--paper)', maxHeight: 600, overflowY: 'auto', fontSize: 12, lineHeight: 1.6 }}>
-              {diff.length === 0 && (
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)' }}>
-                  Select two versions to compare
-                </div>
-              )}
-              {diff.map((line, i) => (
-                <div
-                  key={i}
-                  className={`ff-diff-line ${line.type === 'same' ? 'ff-diff-same' : line.type === 'added' ? 'ff-diff-added' : 'ff-diff-removed'}`}
-                  style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                >
-                  {line.text || ' '}
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
 
 /* ===================================================================
    APPLICATIONS
@@ -1978,32 +1149,11 @@ const Analytics = ({ data }: any) => {
    MODALS
    =================================================================== */
 
-const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteResume, createApplication, updateApplication, wipe, submitting, reloadData }: any) => {
+const ModalRouter = ({ modal, close, data, createApplication, updateApplication, wipe, submitting, reloadData }: any) => {
   const safeClose = () => { if (!submitting) close(); };
   return (
     <div className="ff-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) safeClose(); }}>
-      <div className={`ff-modal ${modal.type === 'newResume' || modal.type === 'editResume' ? 'ff-modal-wide' : ''}`}>
-        {modal.type === 'newResume' && (
-          <ResumeForm
-            data={data}
-            initialParent={modal.payload?.parentId}
-            initialContent={modal.payload?.prefill || ''}
-            onSave={async (v: any) => { try { await createResume(v); close(); } catch {} }}
-            onCancel={safeClose}
-            isBranch={!!modal.payload?.parentId}
-            submitting={submitting}
-          />
-        )}
-        {modal.type === 'editResume' && (
-          <ResumeForm
-            data={data}
-            existing={modal.payload}
-            onSave={async (v: any) => { try { await updateResume(modal.payload.id, v); close(); } catch {} }}
-            onCancel={safeClose}
-            isEdit
-            submitting={submitting}
-          />
-        )}
+      <div className="ff-modal">
         {modal.type === 'newApplication' && (
           <ApplicationForm
             data={data}
@@ -2022,20 +1172,6 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             submitting={submitting}
           />
         )}
-        {modal.type === 'confirmWipe' && (
-          <ConfirmDialog
-            title="Wipe all data?"
-            message="This will permanently delete all your resume versions and tracked applications. This cannot be undone."
-            confirmLabel="Yes, wipe everything"
-            danger
-            onConfirm={async () => { await wipe(); close(); }}
-            onCancel={safeClose}
-            submitting={submitting}
-          />
-        )}
-        {modal.type === 'exportPdf' && (
-          <ExportPdfModal resume={modal.payload} onCancel={safeClose} />
-        )}
         {modal.type === 'matchKeywords' && (
           <MatchKeywordsModal resume={modal.payload} onCancel={safeClose} />
         )}
@@ -2046,9 +1182,6 @@ const ModalRouter = ({ modal, close, data, createResume, updateResume, deleteRes
             onCancel={safeClose}
             onChanged={reloadData}
           />
-        )}
-        {modal.type === 'upgrade' && (
-          <UpgradeModal onCancel={safeClose} />
         )}
       </div>
     </div>
@@ -2075,151 +1208,6 @@ const Field = ({ label, hint, children }: any) => (
   </div>
 );
 
-const ResumeForm = ({ data, existing, initialParent, initialContent, isEdit, isBranch, onSave, onCancel, submitting }: any) => {
-  const [name, setName] = useState(existing?.name || (isBranch ? 'New branch' : ''));
-  const [content, setContent] = useState(existing?.content ?? initialContent ?? '');
-  const [parentId, setParentId] = useState(existing?.parentId ?? initialParent ?? null);
-  const [tagsStr, setTagsStr] = useState((existing?.tags || []).join(', '));
-  const [notes, setNotes] = useState(existing?.notes || '');
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const allParents = Object.values(data.resumes).filter((r: any) => !existing || (r.id !== existing.id && !descendants(data.resumes, existing.id).has(r.id)));
-
-  const handleSave = () => {
-    const tags = tagsStr.split(',').map((t: string) => t.trim()).filter(Boolean);
-    onSave({ name, content, parentId: parentId || null, tags, notes });
-  };
-
-  const handleFile = async (file: File) => {
-    setUploadError(null);
-    setUploading(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch('/api/resumes/upload', { method: 'POST', body: form });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Upload failed');
-      setContent(json.text);
-      if (!name.trim()) {
-        setName(file.name.replace(/\.[^.]+$/, ''));
-      }
-    } catch (e: any) {
-      setUploadError(e.message || 'Failed to parse file');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const onDropZoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-    e.target.value = '';
-  };
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
-  };
-
-  const title = isEdit ? `Edit "${existing.name}"` : isBranch ? 'Branch new version' : 'New resume';
-  const subtitle = isEdit
-    ? 'Update name, content, or metadata.'
-    : isBranch
-      ? 'This will create a child version. The parent stays untouched.'
-      : 'Create a new resume — typically your master, the root of your version tree.';
-
-  return (
-    <>
-      <ModalHeader title={title} subtitle={subtitle} onClose={onCancel} />
-      <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <Field label="Name">
-          <input className="ff-input" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. SWE — Quant tailored" autoFocus disabled={submitting} />
-        </Field>
-
-        <Field label="Branched from" hint="Leave as 'no parent' to make this a root version.">
-          <select className="ff-select" value={parentId || ''} onChange={e => setParentId(e.target.value || null)} disabled={submitting}>
-            <option value="">— no parent (root) —</option>
-            {(allParents as any[]).map((r: any) => (
-              <option key={r.id} value={r.id}>{r.name} · {shortHash(r.id)}</option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Resume content" hint="Paste your resume as plain text, or upload a PDF, DOCX, or TEX file below.">
-          <div
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => !uploading && !submitting && fileInputRef.current?.click()}
-            style={{
-              border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--line-2)'}`,
-              borderRadius: 3,
-              padding: '14px 16px',
-              marginBottom: 8,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              cursor: (uploading || submitting) ? 'not-allowed' : 'pointer',
-              background: dragOver ? 'var(--accent-soft)' : 'var(--paper-2)',
-              transition: 'background 120ms, border-color 120ms',
-              opacity: (uploading || submitting) ? 0.7 : 1,
-            }}
-          >
-            {uploading
-              ? <Loader2 size={15} style={{ animation: 'spin 1.2s linear infinite', flexShrink: 0, color: 'var(--ink-3)' }} />
-              : <Upload size={15} style={{ flexShrink: 0, color: 'var(--ink-3)' }} />
-            }
-            <span className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              {uploading ? 'Parsing file…' : 'Drop a PDF, DOCX, or TEX file here, or click to browse'}
-            </span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.docx,.tex"
-              style={{ display: 'none' }}
-              onChange={onDropZoneChange}
-            />
-          </div>
-          {uploadError && (
-            <div className="ff-mono" style={{ fontSize: 11, color: 'var(--red)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <AlertCircle size={12} /> {uploadError}
-            </div>
-          )}
-          <textarea
-            className="ff-textarea"
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            placeholder="NAME&#10;email | linkedin | github&#10;&#10;EDUCATION&#10;...&#10;&#10;EXPERIENCE&#10;..."
-            disabled={submitting}
-          />
-        </Field>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <Field label="Tags" hint="Comma-separated. e.g. swe, google, draft">
-            <input className="ff-input" value={tagsStr} onChange={e => setTagsStr(e.target.value)} placeholder="swe, finance, draft" disabled={submitting} />
-          </Field>
-          <Field label="Notes" hint="Recruiter feedback, what you changed, etc.">
-            <input className="ff-input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="What changed in this version?" disabled={submitting} />
-          </Field>
-        </div>
-      </div>
-      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
-        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={submitting}>Cancel</button>
-        <button className="ff-btn" onClick={handleSave} disabled={!name.trim() || submitting}>
-          {submitting
-            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Saving…</>
-            : (isEdit ? 'Save changes' : isBranch ? 'Create branch' : 'Create resume')
-          }
-        </button>
-      </div>
-    </>
-  );
-};
 
 const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel, submitting }: any) => {
   const [company, setCompany] = useState(existing?.company || '');
@@ -2311,136 +1299,6 @@ const ApplicationForm = ({ data, existing, isEdit, onSave, onCancel, submitting 
   );
 };
 
-const PDF_TEMPLATES: { id: 'jake' | 'compact' | 'modern' | 'tech'; label: string; blurb: string }[] = [
-  { id: 'jake',    label: "Jake's",  blurb: 'ATS-optimized, single column. The classic.' },
-  { id: 'compact', label: 'Compact', blurb: 'Tight one-page layout. Smaller margins.' },
-  { id: 'modern',  label: 'Modern',  blurb: 'Two-column. Skills sidebar, content right.' },
-  { id: 'tech',    label: 'Tech',    blurb: 'Projects-first ordering. Monospace accents.' },
-];
-
-const ExportPdfModal = ({ resume, onCancel }: any) => {
-  const [picked, setPicked] = useState<'jake' | 'compact' | 'modern' | 'tech'>('jake');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const filename = useMemo(() => {
-    const roleTag = (resume.tags || []).find((t: string) => t && t !== 'master' && t !== 'draft');
-    const suffix = roleTag ? `_${slug(roleTag)}` : '';
-    return `${slug(resume.name)}${suffix}.pdf`;
-  }, [resume]);
-
-  const handleExport = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const html = await api.resumes.exportPdfHtml(resume.id, picked);
-
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const styles = Array.from(doc.head.querySelectorAll('style'))
-        .map((s) => s.outerHTML)
-        .join('');
-
-      const container = document.createElement('div');
-      container.style.position = 'fixed';
-      container.style.left = '-10000px';
-      container.style.top = '0';
-      container.style.width = '8.5in';
-      container.innerHTML = styles + doc.body.innerHTML;
-      document.body.appendChild(container);
-
-      try {
-        const html2pdf = (await import('html2pdf.js')).default;
-        const opts: Record<string, unknown> = {
-          margin: 0,
-          filename,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-        };
-        await html2pdf().from(container).set(opts).save();
-      } finally {
-        document.body.removeChild(container);
-      }
-
-      onCancel();
-    } catch (e: any) {
-      if (e instanceof ApiError && e.status === 402) {
-        setError('PDF export is a Plus feature. Upgrade to enable.');
-      } else {
-        setError(e?.message || 'Failed to export PDF');
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <ModalHeader
-        title="Export PDF"
-        subtitle="Pick a template. We'll style your resume and download a PDF."
-        onClose={onCancel}
-      />
-      <div style={{ padding: '24px 28px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {PDF_TEMPLATES.map((t) => {
-            const active = picked === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setPicked(t.id)}
-                disabled={busy}
-                style={{
-                  textAlign: 'left',
-                  padding: 14,
-                  borderRadius: 3,
-                  border: '1px solid ' + (active ? 'var(--ink)' : 'var(--line-2)'),
-                  background: active ? 'var(--paper-3)' : 'var(--paper)',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  fontFamily: 'inherit',
-                  color: 'var(--ink)',
-                  transition: 'all 120ms ease',
-                  opacity: busy ? 0.6 : 1,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div className="ff-display" style={{ fontSize: 16, fontWeight: 600 }}>
-                    {t.label}
-                  </div>
-                  {active && <Check size={14} style={{ color: 'var(--accent)' }} />}
-                </div>
-                <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.4 }}>
-                  {t.blurb}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="ff-mono" style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 16 }}>
-          File: <span style={{ color: 'var(--ink-2)' }}>{filename}</span>
-        </div>
-
-        {error && (
-          <div className="ff-mono" style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <AlertCircle size={12} /> {error}
-          </div>
-        )}
-      </div>
-      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
-        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
-        <button className="ff-btn" onClick={handleExport} disabled={busy}>
-          {busy
-            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Generating…</>
-            : <><Download size={13} /> Download PDF</>
-          }
-        </button>
-      </div>
-    </>
-  );
-};
-
 const MatchKeywordsModal = ({ resume, onCancel }: any) => {
   const [jd, setJd] = useState('');
   const [busy, setBusy] = useState(false);
@@ -2466,11 +1324,7 @@ const MatchKeywordsModal = ({ resume, onCancel }: any) => {
       });
       setResult(r);
     } catch (e: any) {
-      if (e instanceof ApiError && e.status === 402) {
-        setError('Keyword matching is a Plus feature. Upgrade to enable.');
-      } else {
-        setError(e?.message || 'Failed to match keywords');
-      }
+      setError(e?.message || 'Failed to match keywords');
     } finally {
       setBusy(false);
     }
@@ -2647,11 +1501,7 @@ const InterviewsModal = ({ application, data, onCancel, onChanged }: any) => {
         }))
       );
     } catch (e: any) {
-      if (e instanceof ApiError && e.status === 402) {
-        setError('Interview tracking is a Plus feature. Upgrade to enable.');
-      } else {
-        setError(e?.message || 'Failed to load interviews');
-      }
+      setError(e?.message || 'Failed to load interviews');
     }
   };
 
@@ -2671,11 +1521,7 @@ const InterviewsModal = ({ application, data, onCancel, onChanged }: any) => {
       setDraft({ kind: 'Phone screen', scheduledAt: '', notes: '', outcome: 'pending' });
       setShowForm(false);
     } catch (e: any) {
-      if (e instanceof ApiError && e.status === 402) {
-        setError('Interview tracking is a Plus feature. Upgrade to enable.');
-      } else {
-        setError(e?.message || 'Failed to save interview');
-      }
+      setError(e?.message || 'Failed to save interview');
     } finally {
       setBusy(false);
     }
@@ -2854,85 +1700,6 @@ const InterviewsModal = ({ application, data, onCancel, onChanged }: any) => {
       </div>
       <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
         <button className="ff-btn" onClick={onCancel} disabled={busy}>Done</button>
-      </div>
-    </>
-  );
-};
-
-const PLUS_FEATURES = [
-  { icon: <FileCheck size={14} />, label: 'Styled PDF export', sub: 'Four ATS-clean templates: Jake\'s, Compact, Modern, Tech' },
-  { icon: <Search size={14} />,    label: 'Job description matcher', sub: 'Paste a JD, see which keywords your resume is missing' },
-  { icon: <Calendar size={14} />,  label: 'Interview tracker', sub: 'Log every round per application with dates and notes' },
-  { icon: <Sparkles size={14} />,  label: 'Everything in Free', sub: 'Unlimited versions, branching, diffs, callback analytics' },
-];
-
-const UpgradeModal = ({ onCancel }: any) => {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleCheckout = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const { url } = await api.billing.checkout();
-      window.location.href = url;
-    } catch (e: any) {
-      setError(e?.message || 'Failed to start checkout');
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <ModalHeader
-        title="Upgrade to Plus"
-        subtitle="$9/month. 14-day free trial. Cancel anytime."
-        onClose={onCancel}
-      />
-      <div style={{ padding: '24px 28px' }}>
-        <div style={{
-          padding: 18,
-          border: '1px solid var(--accent)',
-          borderRadius: 4,
-          background: 'var(--accent-soft)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <div className="ff-display ff-tabular" style={{ fontSize: 32, fontWeight: 600, color: 'var(--accent-2)', lineHeight: 1 }}>
-              $9
-            </div>
-            <div className="ff-mono ff-label" style={{ color: 'var(--ink-3)' }}>/month</div>
-            <div className="ff-mono ff-label" style={{ marginLeft: 'auto', color: 'var(--green)' }}>
-              14-day free trial
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
-          {PLUS_FEATURES.map((f) => (
-            <div key={f.label} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <div style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }}>{f.icon}</div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>{f.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.45 }}>{f.sub}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {error && (
-          <div className="ff-mono" style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <AlertCircle size={12} /> {error}
-          </div>
-        )}
-      </div>
-      <div style={{ padding: '18px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', background: 'var(--paper-2)' }}>
-        <button className="ff-btn ff-btn-ghost" onClick={onCancel} disabled={busy}>Maybe later</button>
-        <button className="ff-btn" onClick={handleCheckout} disabled={busy}>
-          {busy
-            ? <><Loader2 size={13} style={{ animation: 'spin 1.2s linear infinite' }} /> Redirecting…</>
-            : <><Sparkles size={13} /> Start 14-day free trial</>
-          }
-        </button>
       </div>
     </>
   );

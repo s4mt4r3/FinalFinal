@@ -1,109 +1,82 @@
 // ============================================================
 // app/api/resumes/[id]/route.ts
 // ============================================================
-//   GET    /api/resumes/:id   → fetch one resume (with children)
-//   PATCH  /api/resumes/:id   → update name/content/tags/notes
-//   DELETE /api/resumes/:id   → delete (cascades to children)
-//
-// The :id segment becomes params.id, validated as a uuid below.
+//   GET    /api/resumes/:id   → resume + its composed section variants
+//   PATCH  /api/resumes/:id   → update name/tags/notes and/or sections
+//   DELETE /api/resumes/:id   → delete (cascades resume_sections)
 // ============================================================
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { route, ResumeUpdateSchema } from '@/lib/api-helpers';
+import { getComposition, setComposition } from '@/lib/compose';
 
 const IdSchema = z.string().uuid();
 
-// ------------------------------------------------------------
-// GET /api/resumes/:id
-// ------------------------------------------------------------
-// Returns the resume plus its direct children (one tree level
-// down). The frontend assembles the full tree from the list
-// endpoint, but this is handy for the detail view.
-// ------------------------------------------------------------
 export const GET = route(async ({ supabase, params }) => {
+  const sb = supabase as SupabaseClient<any, any, any>;
   const id = IdSchema.parse(params.id);
 
-  const [resumeRes, childrenRes, appsRes] = await Promise.all([
-    supabase.from('resumes').select('*').eq('id', id).single(),
-    supabase.from('resumes').select('*').eq('parent_id', id),
-    supabase.from('applications').select('*').eq('resume_id', id),
+  const [resumeRes, appsRes] = await Promise.all([
+    sb.from('resumes').select('*').eq('id', id).single(),
+    sb.from('applications').select('*').eq('resume_id', id),
   ]);
 
-  if (resumeRes.error) {
+  if (resumeRes.error || !resumeRes.data) {
     // RLS makes "not yours" look identical to "not found" — by design.
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
+  const sections = await getComposition(sb, id);
+
   return NextResponse.json({
-    resume: resumeRes.data,
-    children: childrenRes.data ?? [],
+    resume: { ...resumeRes.data, sections },
     applications: appsRes.data ?? [],
   });
 });
 
-// ------------------------------------------------------------
-// PATCH /api/resumes/:id
-// ------------------------------------------------------------
-// Partial update. Send only the fields you want to change.
-// ------------------------------------------------------------
 export const PATCH = route(async ({ supabase, params, request }) => {
+  const sb = supabase as SupabaseClient<any, any, any>;
   const id = IdSchema.parse(params.id);
   const body = await request.json();
   const patch = ResumeUpdateSchema.parse(body);
 
-  // Disallow re-parenting to your own descendant (would create a cycle).
-  if (patch.parent_id) {
-    if (patch.parent_id === id) {
-      return NextResponse.json(
-        { error: 'A resume cannot be its own parent' },
-        { status: 400 }
-      );
-    }
-    // Walk up from the proposed parent — if we hit `id`, it's a cycle.
-    let cursor: string | null = patch.parent_id;
-    const seen = new Set<string>();
-    while (cursor && !seen.has(cursor)) {
-      seen.add(cursor);
-      if (cursor === id) {
-        return NextResponse.json(
-          { error: 'Would create a cycle in the version tree' },
-          { status: 400 }
-        );
-      }
-      const { data } = await supabase
-        .from('resumes')
-        .select('parent_id')
-        .eq('id', cursor)
-        .single();
-      cursor = data?.parent_id ?? null;
-    }
+  // Metadata fields go straight onto the row.
+  const meta: Record<string, unknown> = {};
+  if (patch.name !== undefined) meta.name = patch.name;
+  if (patch.tags !== undefined) meta.tags = patch.tags;
+  if (patch.notes !== undefined) meta.notes = patch.notes;
+
+  if (Object.keys(meta).length > 0) {
+    const { error } = await sb.from('resumes').update(meta).eq('id', id);
+    if (error) throw error;
   }
 
-  const { data, error } = await supabase
-    .from('resumes')
-    .update(patch)
-    .eq('id', id)
-    .select()
-    .single();
+  // If a new composition was supplied, replace it (this also
+  // regenerates the content cache).
+  let sections;
+  if (patch.sections !== undefined) {
+    sections = await setComposition(sb, id, patch.sections);
+  } else {
+    sections = await getComposition(sb, id);
+  }
 
-  if (error) throw error;
-  return NextResponse.json({ resume: data });
+  const { data: resume, error: rErr } = await sb
+    .from('resumes')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (rErr || !resume) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  return NextResponse.json({ resume: { ...resume, sections } });
 });
 
-// ------------------------------------------------------------
-// DELETE /api/resumes/:id
-// ------------------------------------------------------------
-// Postgres cascades to children (ON DELETE CASCADE in the schema),
-// so deleting the master also removes everything branched from it.
-// Applications linked to deleted resumes get their resume_id set
-// to null (preserving the application record).
-// ------------------------------------------------------------
 export const DELETE = route(async ({ supabase, params }) => {
   const id = IdSchema.parse(params.id);
-
   const { error } = await supabase.from('resumes').delete().eq('id', id);
   if (error) throw error;
-
   return NextResponse.json({ success: true });
 });

@@ -1,6 +1,9 @@
 node_modules/
 .env.local
+.env*.local
 .next/
+.vercel
 .DS_Store
 PLAN.md
 references
+.claude

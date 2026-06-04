@@ -23,6 +23,11 @@ import type {
   ResumeUpdate,
   ApplicationInsert,
   ApplicationUpdate,
+  SectionVariant,
+  SectionVariantInsert,
+  SectionVariantUpdate,
+  SectionKind,
+  ComposedResume,
 } from '@/types/database';
 
 // ------------------------------------------------------------
@@ -82,18 +87,18 @@ export const api = {
     list: () => call<{ resumes: Resume[] }>('/api/resumes').then((r) => r.resumes),
 
     get: (id: string) =>
-      call<{ resume: Resume; children: Resume[]; applications: Application[] }>(
+      call<{ resume: ComposedResume; applications: Application[] }>(
         `/api/resumes/${id}`
       ),
 
     create: (input: ResumeInsert) =>
-      call<{ resume: Resume }>('/api/resumes', {
+      call<{ resume: ComposedResume }>('/api/resumes', {
         method: 'POST',
         body: JSON.stringify(input),
       }).then((r) => r.resume),
 
     update: (id: string, patch: ResumeUpdate) =>
-      call<{ resume: Resume }>(`/api/resumes/${id}`, {
+      call<{ resume: ComposedResume }>(`/api/resumes/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       }).then((r) => r.resume),
@@ -101,9 +106,11 @@ export const api = {
     delete: (id: string) =>
       call<{ success: true }>(`/api/resumes/${id}`, { method: 'DELETE' }),
 
-    exportPdfHtml: async (id: string, template: string): Promise<string> => {
+    // Render a composed resume. format: 'html' (for preview/html2pdf) or 'tex'.
+    // `scale` shrinks the HTML to fit one page (ignored for tex).
+    render: async (id: string, format: 'html' | 'tex' = 'html', scale = 1): Promise<string> => {
       const res = await fetch(
-        `/api/resumes/export/pdf?id=${encodeURIComponent(id)}&template=${encodeURIComponent(template)}`
+        `/api/resumes/export?id=${encodeURIComponent(id)}&format=${format}&scale=${scale}`
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -126,6 +133,28 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(input),
       }),
+  },
+
+  sections: {
+    list: (kind?: SectionKind) =>
+      call<{ variants: SectionVariant[] }>('/api/sections', {
+        params: { kind },
+      }).then((r) => r.variants),
+
+    create: (input: SectionVariantInsert) =>
+      call<{ variant: SectionVariant }>('/api/sections', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }).then((r) => r.variant),
+
+    update: (id: string, patch: SectionVariantUpdate) =>
+      call<{ variant: SectionVariant }>(`/api/sections/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }).then((r) => r.variant),
+
+    delete: (id: string) =>
+      call<{ success: true }>(`/api/sections/${id}`, { method: 'DELETE' }),
   },
 
   interviews: {
@@ -152,19 +181,6 @@ export const api = {
 
     delete: (id: string) =>
       call<{ success: true }>(`/api/interviews/${id}`, { method: 'DELETE' }),
-  },
-
-  billing: {
-    status: () =>
-      call<{ tier: 'free' | 'plus'; current_period_end: string | null }>(
-        '/api/billing/status'
-      ),
-
-    checkout: () =>
-      call<{ url: string }>('/api/billing/checkout', { method: 'POST' }),
-
-    portal: () =>
-      call<{ url: string }>('/api/billing/portal', { method: 'POST' }),
   },
 
   applications: {

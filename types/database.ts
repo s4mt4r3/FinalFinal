@@ -38,6 +38,46 @@ export interface Resume {
   updated_at: string;
 }
 
+// ------------------------------------------------------------
+// Section model (the redesigned core)
+// ------------------------------------------------------------
+export type SectionKind =
+  | 'header'
+  | 'education'
+  | 'coursework'
+  | 'experience'
+  | 'projects'
+  | 'skills'
+  | 'leadership';
+
+// A reusable, versioned section block. `data` is structured JSON
+// whose shape depends on `kind` (see lib/sections.ts).
+export interface SectionVariant {
+  id: string;
+  user_id: string;
+  kind: SectionKind;
+  label: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// Join row: a variant placed in a resume composition at a position.
+export interface ResumeSection {
+  id: string;
+  resume_id: string;
+  variant_id: string;
+  position: number;
+  created_at: string;
+}
+
+export type SectionVariantInsert = {
+  kind: SectionKind;
+  label: string;
+  data?: Record<string, unknown>;
+};
+export type SectionVariantUpdate = Partial<Pick<SectionVariantInsert, 'label' | 'data'>>;
+
 export interface Application {
   id: string;
   user_id: string;
@@ -61,25 +101,6 @@ export interface VersionStat {
   rejected: number;
   ghosted: number;
   callback_rate_pct: number;
-}
-
-export type SubscriptionStatus =
-  | 'active'
-  | 'trialing'
-  | 'past_due'
-  | 'canceled'
-  | 'incomplete';
-
-export interface Subscription {
-  id: string;
-  user_id: string;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  tier: 'free' | 'plus';
-  status: SubscriptionStatus;
-  current_period_end: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface Interview {
@@ -115,9 +136,17 @@ export type ResumeInsert = {
   tags?: string[];
   notes?: string;
   source_file_path?: string | null;
+  // Composition: ordered variant ids that make up this resume.
+  sections?: string[];
 };
 
 export type ResumeUpdate = Partial<ResumeInsert>;
+
+// A composed resume as returned by the API: the row plus the
+// ordered, hydrated section variants that make it up.
+export interface ComposedResume extends Resume {
+  sections: SectionVariant[];
+}
 
 export type ApplicationInsert = {
   company: string;
@@ -163,10 +192,16 @@ export interface Database {
         Update: InterviewUpdate;
         Relationships: [];
       };
-      subscriptions: {
-        Row: Subscription;
-        Insert: Omit<Subscription, 'id' | 'created_at' | 'updated_at'>;
-        Update: Partial<Subscription>;
+      section_variants: {
+        Row: SectionVariant;
+        Insert: SectionVariantInsert & { user_id: string };
+        Update: SectionVariantUpdate;
+        Relationships: [];
+      };
+      resume_sections: {
+        Row: ResumeSection;
+        Insert: { resume_id: string; variant_id: string; position?: number };
+        Update: Partial<{ position: number }>;
         Relationships: [];
       };
     };
@@ -176,7 +211,7 @@ export interface Database {
     Functions: Record<string, never>;
     Enums: {
       application_status: ApplicationStatus;
-      subscription_status: SubscriptionStatus;
+      section_kind: SectionKind;
     };
     CompositeTypes: Record<string, never>;
   };

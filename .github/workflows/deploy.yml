@@ -1,0 +1,81 @@
+name: Deploy
+
+# Continuous deployment to Vercel via the Vercel CLI.
+#   - Pull requests  -> Preview deployment (a unique URL per PR)
+#   - Push to main   -> Production deployment
+#
+# Requires three repo secrets (Settings -> Secrets and variables -> Actions):
+#   VERCEL_TOKEN        – Account Settings -> Tokens on vercel.com
+#   VERCEL_ORG_ID       – from `vercel link` output / .vercel/project.json
+#   VERCEL_PROJECT_ID   – from `vercel link` output / .vercel/project.json
+#
+# IMPORTANT: if you keep this workflow, disable Vercel's own Git
+# integration auto-deploys for this repo (Vercel Project -> Settings ->
+# Git -> turn off "Production"/"Preview" deployments) so you don't get
+# double deployments. Your runtime env vars (Supabase, Stripe, etc.) live
+# in the Vercel project, not here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy-preview:
+    name: Preview (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: preview
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Pull Vercel env (preview)
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Deploy preview
+        run: |
+          URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "Preview deployed to: $URL"
+          echo "### Preview deployment :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-production:
+    name: Production (main)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Pull Vercel env (production)
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Deploy production
+        run: |
+          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "Production deployed to: $URL"
+          echo "### Production deployment :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"

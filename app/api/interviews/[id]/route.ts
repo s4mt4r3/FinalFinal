@@ -8,7 +8,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { route } from '@/lib/api-helpers';
-import { requirePlus } from '@/lib/billing';
 
 const IdSchema = z.string().uuid();
 
@@ -19,9 +18,7 @@ const UpdateSchema = z.object({
   outcome: z.enum(['pending', 'passed', 'rejected', 'withdrew']).nullable().optional(),
 });
 
-export const PATCH = route(async ({ supabase, user, params, request }) => {
-  await requirePlus(supabase, user.id);
-
+export const PATCH = route(async ({ supabase, params, request }) => {
   const id = IdSchema.parse(params.id);
   const body = await request.json();
   const patch = UpdateSchema.parse(body) as never;
@@ -37,9 +34,7 @@ export const PATCH = route(async ({ supabase, user, params, request }) => {
   return NextResponse.json({ interview: data });
 });
 
-export const DELETE = route(async ({ supabase, user, params }) => {
-  await requirePlus(supabase, user.id);
-
+export const DELETE = route(async ({ supabase, params }) => {
   const id = IdSchema.parse(params.id);
   const { error } = await supabase.from('interviews').delete().eq('id', id);
   if (error) throw error;
