@@ -63,7 +63,7 @@ export default function PrivacyPage() {
         <h2>Who we are</h2>
         <p>
           FinalFinal is a personal project operated by an individual developer. Questions about this
-          policy can be sent to <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a>.
+          policy can be sent to <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a>.
         </p>
 
         <h2>What data we collect</h2>
@@ -101,7 +101,7 @@ export default function PrivacyPage() {
         <h2>Data retention</h2>
         <p>
           Your data is retained for as long as your account exists. If you would like your account
-          and all associated data deleted, email <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a> and
+          and all associated data deleted, email <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a> and
           we will remove it within 30 days.
         </p>
 
@@ -112,7 +112,7 @@ export default function PrivacyPage() {
           <li>Request correction of inaccurate data.</li>
           <li>Request deletion of your account and all associated data.</li>
         </ul>
-        <p>To exercise any of these rights, email <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a>.</p>
+        <p>To exercise any of these rights, email <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a>.</p>
 
         <h2>Children</h2>
         <p>
@@ -128,7 +128,7 @@ export default function PrivacyPage() {
 
         <hr className="privacy-divider" />
         <p style={{ fontSize: 13, color: 'var(--ink-3)', fontFamily: 'IBM Plex Mono, monospace' }}>
-          Questions? <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a>
+          Questions? <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a>
         </p>
       </div>
     </div>

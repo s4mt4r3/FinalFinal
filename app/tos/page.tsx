@@ -55,7 +55,7 @@ export default function TosPage() {
         <h2>Who operates this service</h2>
         <p>
           FinalFinal is a personal project operated by an individual developer. Questions can be sent
-          to <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a>.
+          to <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a>.
         </p>
 
         <h2>Eligibility</h2>
@@ -100,7 +100,7 @@ export default function TosPage() {
         <p>
           We reserve the right to suspend or terminate accounts that violate these terms, at our sole
           discretion and without prior notice. You may request deletion of your account at any time by
-          emailing <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a>.
+          emailing <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a>.
         </p>
 
         <h2>Changes to these terms</h2>
@@ -117,7 +117,7 @@ export default function TosPage() {
 
         <hr className="tos-divider" />
         <p style={{ fontSize: 13, color: 'var(--ink-3)', fontFamily: 'IBM Plex Mono, monospace' }}>
-          Questions? <a href="mailto:samiktare@gmail.com">samiktare@gmail.com</a>
+          Questions? <a href="mailto:app.finalfinal@gmail.com">app.finalfinal@gmail.com</a>
         </p>
       </div>
     </div>
