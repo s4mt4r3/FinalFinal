@@ -16,34 +16,38 @@ import type { Database } from '@/types/database';
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          response = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  // Touching getUser() refreshes the session cookie if needed.
-  // Wrapped in try/catch so a Supabase timeout or network blip doesn't
-  // crash the middleware and return 500 — the layout handles auth gating.
+  // Everything below is best-effort session refresh. Any failure here
+  // (bad env vars, Supabase network blip, cookie issues) must not turn
+  // into a 500 — the root layout does its own auth check and redirect,
+  // so middleware can always safely fall through.
   try {
-    await supabase.auth.getUser();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseAnonKey) {
+      const supabase = createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            response = NextResponse.next({ request });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
+        },
+      });
+
+      // Touching getUser() refreshes the session cookie if needed.
+      await supabase.auth.getUser();
+    }
   } catch {
     // Session refresh failed — continue the request anyway.
+    response = NextResponse.next({ request });
   }
 
   // Forward the pathname so the root layout can gate on it.
