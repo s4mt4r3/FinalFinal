@@ -210,5 +210,4 @@ All endpoints return typed JSON and require a valid session cookie.
 Active learning project — issues and PRs welcome.
 
 ## License
-
-MIT
+MIT 
