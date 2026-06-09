@@ -38,7 +38,13 @@ export async function middleware(request: NextRequest) {
   );
 
   // Touching getUser() refreshes the session cookie if needed.
-  await supabase.auth.getUser();
+  // Wrapped in try/catch so a Supabase timeout or network blip doesn't
+  // crash the middleware and return 500 — the layout handles auth gating.
+  try {
+    await supabase.auth.getUser();
+  } catch {
+    // Session refresh failed — continue the request anyway.
+  }
 
   // Forward the pathname so the root layout can gate on it.
   response.headers.set('x-pathname', request.nextUrl.pathname);
