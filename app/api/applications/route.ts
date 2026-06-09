@@ -43,8 +43,9 @@ export const GET = route(async ({ supabase, request }) => {
   if (q.status) query = query.eq('status', q.status);
   if (q.resume_id) query = query.eq('resume_id', q.resume_id);
   if (q.search) {
-    // ilike = case-insensitive LIKE. % is the wildcard.
-    query = query.or(`company.ilike.%${q.search}%,role.ilike.%${q.search}%`);
+    // Escape PostgREST LIKE special chars before interpolating into the filter string.
+    const safe = q.search.replace(/[%_\\]/g, '\\$&');
+    query = query.or(`company.ilike.%${safe}%,role.ilike.%${safe}%`);
   }
 
   const { data, error } = await query;

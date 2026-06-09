@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser, AuthError } from './supabase-server';
+import { checkRateLimit } from './rate-limit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 
@@ -47,10 +48,11 @@ export const SectionKindSchema = z.enum([
   'leadership',
 ]);
 
-// `data` is structured JSON whose shape depends on kind; we keep
-// the SQL/zod boundary permissive (a JSON object up to a sane size)
-// and rely on the typed editors + renderers for shape correctness.
-const JsonObject = z.record(z.string(), z.unknown());
+// `data` is structured JSON whose shape depends on kind. Keys are
+// capped at 60 chars; serialized size is capped at 50 KB.
+const JsonObject = z
+  .record(z.string().max(60), z.unknown())
+  .refine((v) => JSON.stringify(v).length <= 50_000, { message: 'Section data too large (max 50 KB)' });
 
 export const SectionCreateSchema = z.object({
   kind: SectionKindSchema,
@@ -134,6 +136,13 @@ export function route(handler: Handler) {
   ) => {
     try {
       const { user, supabase } = await getCurrentUser();
+      const { allowed, retryAfter } = checkRateLimit(user.id, new URL(request.url).pathname);
+      if (!allowed) {
+        return NextResponse.json(
+          { error: 'Too many requests' },
+          { status: 429, headers: { 'Retry-After': String(retryAfter) } }
+        );
+      }
       const params = context ? await context.params : {};
       return await handler({ user, supabase, request, params });
     } catch (err) {

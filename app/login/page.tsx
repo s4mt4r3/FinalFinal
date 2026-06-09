@@ -152,6 +152,13 @@ export default function LoginPage() {
             {error}
           </div>
         )}
+
+        <div className="ff-mono" style={{ marginTop: 28, fontSize: 10.5, color: 'var(--ink-3)', textAlign: 'center', lineHeight: 1.7 }}>
+          By signing in you agree to our{' '}
+          <a href="/tos" style={{ color: 'var(--ink-3)', textDecoration: 'underline' }}>Terms of Service</a>
+          {' '}and{' '}
+          <a href="/privacy" style={{ color: 'var(--ink-3)', textDecoration: 'underline' }}>Privacy Policy</a>.
+        </div>
       </div>
     </div>
   );
