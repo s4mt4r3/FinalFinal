@@ -42,8 +42,15 @@ export async function middleware(request: NextRequest) {
         },
       });
 
-      // Touching getUser() refreshes the session cookie if needed.
-      await supabase.auth.getUser();
+      // Touching getUser() refreshes the session cookie if needed. Race it
+      // against a timeout so a slow/unreachable Supabase auth endpoint can
+      // never hang the middleware invocation (Vercel: MIDDLEWARE_INVOCATION_TIMEOUT).
+      await Promise.race([
+        supabase.auth.getUser(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('supabase auth timeout')), 3000)
+        ),
+      ]);
     }
   } catch {
     // Session refresh failed — continue the request anyway.
