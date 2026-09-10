@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-client';
+import { enableDemoMode } from '@/lib/demo-mode';
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,500&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
@@ -88,8 +90,14 @@ const GoogleIcon = () => (
 );
 
 export default function LoginPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const tryDemo = () => {
+    enableDemoMode();
+    router.push('/demo');
+  };
 
   const signInWithGoogle = async () => {
     setLoading(true);
@@ -159,6 +167,27 @@ export default function LoginPage() {
           {' '}and{' '}
           <a href="/privacy" style={{ color: 'var(--ink-3)', textDecoration: 'underline' }}>Privacy Policy</a>.
         </div>
+      </div>
+
+      <div
+        className="ff-fade"
+        style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: 6, padding: '18px 20px', textAlign: 'center',
+        }}
+      >
+        <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>Just want to look around?</span>
+        <button
+          onClick={tryDemo}
+          className="ff-mono"
+          style={{
+            fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none',
+            textDecoration: 'underline', cursor: 'pointer', padding: 0,
+          }}
+        >
+          Try the demo — no sign-in, nothing saved
+        </button>
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   const isPublic =
     pathname === '/login' ||
+    pathname === '/demo' ||
     pathname === '/privacy' ||
     pathname === '/tos' ||
     pathname.startsWith('/api/auth');

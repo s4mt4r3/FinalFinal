@@ -11,6 +11,7 @@ import {
   RefreshCw, MessageSquare, Filter, LogOut, Upload, Eye, Info
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { isDemoMode, disableDemoMode } from '@/lib/demo-mode';
 import Builder from './Builder';
 import SectionLibrary from './SectionLibrary';
 import {
@@ -328,8 +329,12 @@ const App = () => {
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
   const [submitting, setSubmitting] = useState(false);
 
+  const [demoMode, setDemoMode] = useState(false);
+  useEffect(() => { setDemoMode(isDemoMode()); }, []);
+
   const signOut = async () => {
     await api.auth.signOut();
+    if (demoMode) disableDemoMode();
     router.push('/login');
   };
 
@@ -501,13 +506,13 @@ const App = () => {
 
           <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--line)' }}>
             <button className="ff-btn ff-btn-ghost ff-btn-sm" style={{ width: '100%', justifyContent: 'center' }} onClick={signOut}>
-              <LogOut size={11} /> Sign out
+              <LogOut size={11} /> {demoMode ? 'Exit demo' : 'Sign out'}
             </button>
           </div>
         </aside>
 
         {/* Main */}
-        <main style={{ flex: 1, minWidth: 0, padding: '40px 56px 80px' }}>
+        <main style={{ flex: 1, minWidth: 0, padding: `40px 56px ${demoMode ? 130 : 80}px` }}>
           {view === 'dashboard' && (
             <Dashboard
               data={data}
@@ -564,7 +569,7 @@ const App = () => {
       {/* Toast */}
       {toast && (
         <div style={{
-          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          position: 'fixed', bottom: demoMode ? 76 : 24, left: '50%', transform: 'translateX(-50%)',
           background: toastType === 'error' ? 'var(--red)' : 'var(--ink)',
           color: 'var(--paper)',
           padding: '10px 18px', borderRadius: 3,
@@ -577,6 +582,29 @@ const App = () => {
             : <Check size={13} style={{ display: 'inline', verticalAlign: -2, marginRight: 8 }} />
           }
           {toast}
+        </div>
+      )}
+
+      {/* Demo mode banner */}
+      {demoMode && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 90,
+          background: 'var(--ink)', color: 'var(--paper)',
+          padding: '12px 24px', display: 'flex', alignItems: 'center',
+          justifyContent: 'center', gap: 16, flexWrap: 'wrap',
+          borderTop: '1px solid var(--accent)',
+        }}>
+          <span className="ff-mono" style={{ fontSize: 11.5, letterSpacing: '0.02em' }}>
+            <Info size={12} style={{ display: 'inline', verticalAlign: -2, marginRight: 8 }} />
+            You&apos;re in <strong>demo mode</strong> — nothing you do here is saved.
+          </span>
+          <button
+            className="ff-btn ff-btn-sm"
+            style={{ width: 'auto', background: 'var(--accent)', borderColor: 'var(--accent)' }}
+            onClick={() => { disableDemoMode(); router.push('/login'); }}
+          >
+            Sign in to save your work
+          </button>
         </div>
       )}
     </div>

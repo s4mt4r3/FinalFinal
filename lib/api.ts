@@ -29,6 +29,8 @@ import type {
   SectionKind,
   ComposedResume,
 } from '@/types/database';
+import { isDemoMode } from './demo-mode';
+import { demoApi } from './demo-store';
 
 // ------------------------------------------------------------
 // Shared fetch helper
@@ -84,31 +86,43 @@ export class ApiError extends Error {
 // ------------------------------------------------------------
 export const api = {
   resumes: {
-    list: () => call<{ resumes: Resume[] }>('/api/resumes').then((r) => r.resumes),
+    list: () =>
+      isDemoMode()
+        ? demoApi.resumes.list()
+        : call<{ resumes: Resume[] }>('/api/resumes').then((r) => r.resumes),
 
     get: (id: string) =>
-      call<{ resume: ComposedResume; applications: Application[] }>(
-        `/api/resumes/${id}`
-      ),
+      isDemoMode()
+        ? demoApi.resumes.get(id)
+        : call<{ resume: ComposedResume; applications: Application[] }>(
+            `/api/resumes/${id}`
+          ),
 
     create: (input: ResumeInsert) =>
-      call<{ resume: ComposedResume }>('/api/resumes', {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }).then((r) => r.resume),
+      isDemoMode()
+        ? demoApi.resumes.create(input)
+        : call<{ resume: ComposedResume }>('/api/resumes', {
+            method: 'POST',
+            body: JSON.stringify(input),
+          }).then((r) => r.resume),
 
     update: (id: string, patch: ResumeUpdate) =>
-      call<{ resume: ComposedResume }>(`/api/resumes/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }).then((r) => r.resume),
+      isDemoMode()
+        ? demoApi.resumes.update(id, patch)
+        : call<{ resume: ComposedResume }>(`/api/resumes/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
+          }).then((r) => r.resume),
 
     delete: (id: string) =>
-      call<{ success: true }>(`/api/resumes/${id}`, { method: 'DELETE' }),
+      isDemoMode()
+        ? demoApi.resumes.delete(id)
+        : call<{ success: true }>(`/api/resumes/${id}`, { method: 'DELETE' }),
 
     // Render a composed resume. format: 'html' (for preview/html2pdf) or 'tex'.
     // `scale` shrinks the HTML to fit one page (ignored for tex).
     render: async (id: string, format: 'html' | 'tex' = 'html', scale = 1): Promise<string> => {
+      if (isDemoMode()) return demoApi.resumes.render(id, format, scale);
       const res = await fetch(
         `/api/resumes/export?id=${encodeURIComponent(id)}&format=${format}&scale=${scale}`
       );
@@ -124,63 +138,81 @@ export const api = {
     },
 
     matchKeywords: (input: { resume_id?: string; resume_text?: string; job_text: string }) =>
-      call<{
-        matched: string[];
-        missing: string[];
-        score: number;
-        all_keywords: { term: string; count: number; matched: boolean }[];
-      }>('/api/resumes/match', {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }),
+      isDemoMode()
+        ? demoApi.resumes.matchKeywords(input)
+        : call<{
+            matched: string[];
+            missing: string[];
+            score: number;
+            all_keywords: { term: string; count: number; matched: boolean }[];
+          }>('/api/resumes/match', {
+            method: 'POST',
+            body: JSON.stringify(input),
+          }),
   },
 
   sections: {
     list: (kind?: SectionKind) =>
-      call<{ variants: SectionVariant[] }>('/api/sections', {
-        params: { kind },
-      }).then((r) => r.variants),
+      isDemoMode()
+        ? demoApi.sections.list(kind)
+        : call<{ variants: SectionVariant[] }>('/api/sections', {
+            params: { kind },
+          }).then((r) => r.variants),
 
     create: (input: SectionVariantInsert) =>
-      call<{ variant: SectionVariant }>('/api/sections', {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }).then((r) => r.variant),
+      isDemoMode()
+        ? demoApi.sections.create(input)
+        : call<{ variant: SectionVariant }>('/api/sections', {
+            method: 'POST',
+            body: JSON.stringify(input),
+          }).then((r) => r.variant),
 
     update: (id: string, patch: SectionVariantUpdate) =>
-      call<{ variant: SectionVariant }>(`/api/sections/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }).then((r) => r.variant),
+      isDemoMode()
+        ? demoApi.sections.update(id, patch)
+        : call<{ variant: SectionVariant }>(`/api/sections/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
+          }).then((r) => r.variant),
 
     delete: (id: string) =>
-      call<{ success: true }>(`/api/sections/${id}`, { method: 'DELETE' }),
+      isDemoMode()
+        ? demoApi.sections.delete(id)
+        : call<{ success: true }>(`/api/sections/${id}`, { method: 'DELETE' }),
   },
 
   interviews: {
     list: (applicationId?: string) =>
-      call<{ interviews: import('@/types/database').Interview[] }>(
-        '/api/interviews',
-        { params: { application_id: applicationId } }
-      ).then((r) => r.interviews),
+      isDemoMode()
+        ? demoApi.interviews.list(applicationId)
+        : call<{ interviews: import('@/types/database').Interview[] }>(
+            '/api/interviews',
+            { params: { application_id: applicationId } }
+          ).then((r) => r.interviews),
 
     create: (input: import('@/types/database').InterviewInsert) =>
-      call<{ interview: import('@/types/database').Interview }>(
-        '/api/interviews',
-        { method: 'POST', body: JSON.stringify(input) }
-      ).then((r) => r.interview),
+      isDemoMode()
+        ? demoApi.interviews.create(input)
+        : call<{ interview: import('@/types/database').Interview }>(
+            '/api/interviews',
+            { method: 'POST', body: JSON.stringify(input) }
+          ).then((r) => r.interview),
 
     update: (
       id: string,
       patch: import('@/types/database').InterviewUpdate
     ) =>
-      call<{ interview: import('@/types/database').Interview }>(
-        `/api/interviews/${id}`,
-        { method: 'PATCH', body: JSON.stringify(patch) }
-      ).then((r) => r.interview),
+      isDemoMode()
+        ? demoApi.interviews.update(id, patch)
+        : call<{ interview: import('@/types/database').Interview }>(
+            `/api/interviews/${id}`,
+            { method: 'PATCH', body: JSON.stringify(patch) }
+          ).then((r) => r.interview),
 
     delete: (id: string) =>
-      call<{ success: true }>(`/api/interviews/${id}`, { method: 'DELETE' }),
+      isDemoMode()
+        ? demoApi.interviews.delete(id)
+        : call<{ success: true }>(`/api/interviews/${id}`, { method: 'DELETE' }),
   },
 
   applications: {
@@ -189,41 +221,53 @@ export const api = {
       resume_id?: string;
       search?: string;
     }) =>
-      call<{ applications: Application[] }>('/api/applications', {
-        params: filters,
-      }).then((r) => r.applications),
+      isDemoMode()
+        ? demoApi.applications.list(filters)
+        : call<{ applications: Application[] }>('/api/applications', {
+            params: filters,
+          }).then((r) => r.applications),
 
     create: (input: ApplicationInsert) =>
-      call<{ application: Application }>('/api/applications', {
-        method: 'POST',
-        body: JSON.stringify(input),
-      }).then((r) => r.application),
+      isDemoMode()
+        ? demoApi.applications.create(input)
+        : call<{ application: Application }>('/api/applications', {
+            method: 'POST',
+            body: JSON.stringify(input),
+          }).then((r) => r.application),
 
     update: (id: string, patch: ApplicationUpdate) =>
-      call<{ application: Application }>(`/api/applications/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }).then((r) => r.application),
+      isDemoMode()
+        ? demoApi.applications.update(id, patch)
+        : call<{ application: Application }>(`/api/applications/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(patch),
+          }).then((r) => r.application),
 
     delete: (id: string) =>
-      call<{ success: true }>(`/api/applications/${id}`, { method: 'DELETE' }),
+      isDemoMode()
+        ? demoApi.applications.delete(id)
+        : call<{ success: true }>(`/api/applications/${id}`, { method: 'DELETE' }),
   },
 
   analytics: {
     get: () =>
-      call<{
-        overall: {
-          total_applications: number;
-          callbacks: number;
-          offers: number;
-          callback_rate_pct: number;
-        };
-        by_version: VersionStat[];
-      }>('/api/analytics'),
+      isDemoMode()
+        ? demoApi.analytics.get()
+        : call<{
+            overall: {
+              total_applications: number;
+              callbacks: number;
+              offers: number;
+              callback_rate_pct: number;
+            };
+            by_version: VersionStat[];
+          }>('/api/analytics'),
   },
 
   auth: {
     signOut: () =>
-      call<{ success: true }>('/api/auth/signout', { method: 'POST' }),
+      isDemoMode()
+        ? demoApi.auth.signOut()
+        : call<{ success: true }>('/api/auth/signout', { method: 'POST' }),
   },
 };
