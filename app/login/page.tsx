@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase-client';
 import { enableDemoMode } from '@/lib/demo-mode';
@@ -93,6 +93,8 @@ export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   const tryDemo = () => {
     enableDemoMode();
@@ -111,6 +113,27 @@ export default function LoginPage() {
     });
     if (error) {
       setError(error.message);
+      setLoading(false);
+    }
+  };
+
+  const signInWithEmail = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setLoading(true);
+    setError(null);
+    const supabase = createSupabaseBrowserClient();
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+      },
+    });
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+    } else {
+      setMagicLinkSent(true);
       setLoading(false);
     }
   };
@@ -154,6 +177,48 @@ export default function LoginPage() {
             </>
           )}
         </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+          <span className="ff-mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>OR</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
+        </div>
+
+        {magicLinkSent ? (
+          <div className="ff-mono" style={{ fontSize: 12, color: 'var(--ink-2)', textAlign: 'center', lineHeight: 1.7, padding: '8px 0' }}>
+            Check your inbox — we sent a sign-in link to<br />
+            <strong>{email}</strong>
+          </div>
+        ) : (
+          <form onSubmit={signInWithEmail} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <input
+              type="email"
+              required
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 13,
+                padding: '11px 14px',
+                borderRadius: 3,
+                border: '1px solid var(--line-2)',
+                background: 'var(--paper)',
+                color: 'var(--ink)',
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              className="ff-btn"
+              style={{ background: 'transparent', color: 'var(--ink)' }}
+              disabled={loading}
+            >
+              {loading ? 'Sending…' : 'Continue with email'}
+            </button>
+          </form>
+        )}
 
         {error && (
           <div className="ff-mono" style={{ marginTop: 16, fontSize: 11, color: 'var(--accent)', textAlign: 'center', lineHeight: 1.5 }}>
