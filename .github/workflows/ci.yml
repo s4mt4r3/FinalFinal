@@ -1,9 +1,8 @@
 name: CI
 
-# Runs on every PR and every push to main. This is the quality gate:
-# if `build` fails, the PR shows a red check. `typecheck` is informational
-# only (the repo ships with some known Supabase type-gen quirks and
-# next.config sets typescript.ignoreBuildErrors), so it never blocks merges.
+# The production gate. Runs on every PR and push to main. Branch protection
+# should require the single "CI passed" check; deploy.yml's production job only
+# runs after this workflow succeeds on main.
 
 on:
   push:
@@ -11,50 +10,123 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel superseded runs on the same branch/PR to save minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
 jobs:
-  build:
-    name: Build
+  static:
+    name: Typecheck, lint, audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      # Shipped dependencies must be clean. Dev-only tooling is reported below but
+      # not blocking: e.g. `braces` (via eslint-config-next) has no patched release.
+      - name: npm audit (production deps, blocking)
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (all deps, informational)
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
-      - name: Install dependencies
-        run: npm ci
+  unit:
+    name: Unit + integration (coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
 
-      - name: Build
-        # NEXT_PUBLIC_* values are inlined at build time. These placeholders
-        # only need to be present/well-formed for the build to complete — no
-        # network calls happen, and real values are injected by Vercel at
-        # deploy time. They are public by nature, so it is safe to hardcode them.
+  e2e:
+    name: DB/RLS + build + E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # Local, throwaway Supabase in Docker with every migration applied. Tests
+      # refuse to run against any non-local Supabase URL.
+      - name: Start local Supabase
+        run: npm run db:test:start
+      - name: Test env (public local-stack defaults)
+        run: cp .env.test.example .env.test
+
+      - name: DB / RLS tests
+        run: npm run test:db
+
+      - name: Build (production build, test env)
+        run: npm run build:test
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+      - name: Install Playwright system deps
+        run: npx playwright install-deps chromium
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+
+      - name: E2E
+        run: npm run test:e2e
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder_anon_key
-        run: npm run build
+          E2E_PREBUILT: '1'
 
-  typecheck:
-    name: Type check (non-blocking)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          node-version-file: .nvmrc
-          cache: npm
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Stop Supabase
+        if: always()
+        run: npm run db:test:stop
 
-      - name: tsc --noEmit
-        run: npx tsc --noEmit
+  # Single required status check for branch protection and deploy gating.
+  ci-passed:
+    name: CI passed
+    runs-on: ubuntu-latest
+    needs: [static, unit, e2e]
+    if: always()
+    steps:
+      - name: All jobs green
+        run: |
+          if [ "${{ needs.static.result }}" != "success" ] || \
+             [ "${{ needs.unit.result }}" != "success" ] || \
+             [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "static=${{ needs.static.result }} unit=${{ needs.unit.result }} e2e=${{ needs.e2e.result }}"
+            exit 1
+          fi

@@ -46,10 +46,15 @@ export const POST = route(async ({ request }) => {
   }
 
   if (ext === 'pdf') {
-    const pdfParse = (await import('pdf-parse')).default;
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await pdfParse(buffer);
-    return NextResponse.json({ text: result.text });
+    // pdf-parse v2 is class-based; v1's default-export function no longer exists.
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(await file.arrayBuffer()) });
+    try {
+      const result = await parser.getText();
+      return NextResponse.json({ text: result.text });
+    } finally {
+      await parser.destroy();
+    }
   }
 
   // ext === 'docx' (already validated above)

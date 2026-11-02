@@ -177,7 +177,12 @@ export default function Builder({
       const styles = Array.from(doc.head.querySelectorAll('style')).map((s) => s.outerHTML).join('');
       const container = document.createElement('div');
       container.style.cssText = 'position:fixed;left:-10000px;top:0;width:8.5in;';
-      container.innerHTML = styles + doc.body.innerHTML;
+      // html2pdf clones its source into its own wrapper; a position:fixed source
+      // adds no height there, so html2canvas rendered 0px and the PDF was blank.
+      // Hand it a normal-flow child instead.
+      const page = document.createElement('div');
+      page.innerHTML = styles + doc.body.innerHTML;
+      container.appendChild(page);
       document.body.appendChild(container);
       try {
         const html2pdf = (await import('html2pdf.js')).default;
@@ -189,7 +194,7 @@ export default function Builder({
           jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         };
-        await html2pdf().from(container).set(opts).save();
+        await html2pdf().from(page).set(opts).save();
       } finally { document.body.removeChild(container); }
     } catch (e: any) {
       handleError(e);

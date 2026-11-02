@@ -70,7 +70,7 @@ export const POST = route(async ({ supabase, user, request }) => {
       status: input.status,
       notes: input.notes,
       date_applied: input.date_applied ?? new Date().toISOString(),
-    })
+    } as never)
     .select()
     .single();
 

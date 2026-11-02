@@ -94,8 +94,10 @@ function escapeRe(s: string): string {
 function termRegex(term: string): RegExp {
   // Word-ish boundary that respects + . # / -  characters appearing inside
   // tech terms like "c++", "ci/cd", "node.js", ".net", "c#".
+  // A trailing "." only continues the term when followed by more term chars
+  // ("node.json"); otherwise it's sentence punctuation ("…Kubernetes.").
   const escaped = escapeRe(term);
-  return new RegExp(`(^|[^a-z0-9+/.#-])${escaped}(?=[^a-z0-9+/.#-]|$)`, 'i');
+  return new RegExp(`(^|[^a-z0-9+/.#-])${escaped}(?=[^a-z0-9+/.#-]|\\.(?![a-z0-9])|$)`, 'i');
 }
 
 interface Candidate {

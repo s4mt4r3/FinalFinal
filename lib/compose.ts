@@ -19,6 +19,14 @@ import { renderText, type Composition } from '@/lib/resume-render';
 
 type LooseClient = SupabaseClient<any, any, any>;
 
+export class UnknownVariantError extends Error {
+  status = 400;
+  constructor() {
+    super('One or more sections no longer exist');
+    this.name = 'UnknownVariantError';
+  }
+}
+
 // Map stored variants → the Composition the renderers expect.
 export function compositionFromVariants(variants: SectionVariant[]): Composition {
   return variants.map((v) => ({
@@ -67,6 +75,21 @@ export async function setComposition(
   variantIds: string[]
 ): Promise<SectionVariant[]> {
   const sb = supabase as LooseClient;
+
+  // 0. The delete and insert below are separate requests, so an insert that RLS
+  //    or the FK rejects (another user's variant, or one deleted in another tab)
+  //    would leave the resume with no sections. Verify every id is visible first.
+  const unique = Array.from(new Set(variantIds));
+  if (unique.length > 0) {
+    const { data: visible, error: visErr } = await sb
+      .from('section_variants')
+      .select('id')
+      .in('id', unique);
+    if (visErr) throw visErr;
+    if ((visible ?? []).length !== unique.length) {
+      throw new UnknownVariantError();
+    }
+  }
 
   // 1. Clear the existing composition.
   const { error: delErr } = await sb

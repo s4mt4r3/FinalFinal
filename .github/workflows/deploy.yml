@@ -2,7 +2,9 @@ name: Deploy
 
 # Continuous deployment to Vercel via the Vercel CLI.
 #   - Pull requests  -> Preview deployment (a unique URL per PR)
-#   - Push to main   -> Production deployment
+#   - Push to main   -> Production deployment, but only after the CI workflow
+#                       (.github/workflows/ci.yml) has finished green for that
+#                       exact commit. A red CI run never reaches production.
 #
 # Requires three repo secrets (Settings -> Secrets and variables -> Actions):
 #   VERCEL_TOKEN        – Account Settings -> Tokens on vercel.com
@@ -16,9 +18,11 @@ name: Deploy
 # in the Vercel project, not here.
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 concurrency:
@@ -57,12 +61,19 @@ jobs:
 
   deploy-production:
     name: Production (main)
-    if: github.event_name == 'push'
+    # Only a CI run triggered by a push to main that succeeded deploys.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     environment:
       name: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Deploy the commit CI verified, not whatever main points at now.
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

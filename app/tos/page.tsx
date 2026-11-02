@@ -67,7 +67,7 @@ export default function TosPage() {
         <h2>Acceptable use</h2>
         <p>You may use FinalFinal to build, store, and export your own resumes. You agree not to:</p>
         <ul>
-          <li>Attempt to access other users' data.</li>
+          <li>Attempt to access other users&apos; data.</li>
           <li>Scrape, crawl, or automate requests to the service.</li>
           <li>Attempt to reverse-engineer, overload, or otherwise disrupt the service.</li>
           <li>Use the service to store content that is illegal or infringes third-party rights.</li>
@@ -83,7 +83,7 @@ export default function TosPage() {
 
         <h2>No warranty</h2>
         <p>
-          FinalFinal is provided <strong>"as is"</strong> without warranty of any kind, express or
+          FinalFinal is provided <strong>&quot;as is&quot;</strong> without warranty of any kind, express or
           implied. We do not guarantee uptime, data durability, or fitness for any particular purpose.
           Use it at your own risk.
         </p>
@@ -105,7 +105,7 @@ export default function TosPage() {
 
         <h2>Changes to these terms</h2>
         <p>
-          We may update these terms at any time. The "last updated" date above will reflect changes.
+          We may update these terms at any time. The &quot;last updated&quot; date above will reflect changes.
           Continued use of the service after changes constitutes acceptance of the revised terms.
         </p>
 

@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser, AuthError } from './supabase-server';
 import { checkRateLimit } from './rate-limit';
+import { UnknownVariantError } from './compose';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database';
 
@@ -98,6 +99,13 @@ export function errorResponse(err: unknown) {
       { error: 'Invalid request', details: err.flatten() },
       { status: 400 }
     );
+  }
+  if (err instanceof UnknownVariantError) {
+    return NextResponse.json({ error: err.message }, { status: 400 });
+  }
+  // request.json() on a malformed body throws SyntaxError — a client error, not a 500.
+  if (err instanceof SyntaxError) {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
   // Log the full error server-side so we can debug 500s.
   console.error('[api] error:', err);

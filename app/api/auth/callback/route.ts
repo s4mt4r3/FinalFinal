@@ -6,7 +6,10 @@ import type { Database } from '@/types/database';
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/';
+  // `next` is concatenated onto origin, so anything but a single-slash path
+  // ("@host", ".host", "//host", "/\host") would redirect off-site.
+  const rawNext = searchParams.get('next') ?? '/';
+  const next = /^\/(?![\/\\])/.test(rawNext) ? rawNext : '/';
 
   if (!code) {
     return NextResponse.redirect(`${origin}/login?error=missing_code`);

@@ -8,3 +8,12 @@ PLAN.md
 references
 .claude
 skills.md
+CLAUDE.md
+
+# test env + artifacts
+.env.test
+coverage/
+playwright-report/
+test-results/
+blob-report/
+e2e/.auth/

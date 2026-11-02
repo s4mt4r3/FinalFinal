@@ -24,7 +24,7 @@ export const GET = route(async ({ supabase }) => {
   if (statsRes.error) throw statsRes.error;
   if (appsRes.error) throw appsRes.error;
 
-  const apps = appsRes.data;
+  const apps = appsRes.data as { status: string }[];
   const total = apps.length;
   const callbacks = apps.filter(
     (a) => a.status === 'interviewing' || a.status === 'offer'

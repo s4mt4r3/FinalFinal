@@ -18,7 +18,7 @@ export const PATCH = route(async ({ supabase, params, request }) => {
 
   const { data, error } = await supabase
     .from('applications')
-    .update(patch)
+    .update(patch as never)
     .eq('id', id)
     .select()
     .single();

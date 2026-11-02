@@ -50,12 +50,21 @@ function htmlEsc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
+const LATEX_WORD_ESC: Record<string, string> = {
+  '\\': '\\textbackslash{}',
+  '~': '\\textasciitilde{}',
+  '^': '\\textasciicircum{}',
+};
+
+// Single pass: chained replaces would re-escape the braces of \textbackslash{}.
 function latexEsc(s: string): string {
-  return String(s ?? '')
-    .replace(/\\/g, '\\textbackslash{}')
-    .replace(/([&%$#_{}])/g, '\\$1')
-    .replace(/~/g, '\\textasciitilde{}')
-    .replace(/\^/g, '\\textasciicircum{}');
+  return String(s ?? '').replace(/[\\&%$#_{}~^]/g, (c) => LATEX_WORD_ESC[c] ?? `\\${c}`);
+}
+
+// \href targets are read nearly verbatim by hyperref, but an unescaped % still
+// starts a TeX comment (common in URL-encoded slugs) and braces end the argument.
+function latexUrlEsc(s: string): string {
+  return String(s ?? '').replace(/\\/g, '%5C').replace(/[%#{}]/g, '\\$&');
 }
 
 const nonEmpty = (arr: any[]) => (arr || []).filter((b) => String(b ?? '').trim() !== '');
@@ -349,10 +358,10 @@ function renderHeaderLatex(h: HeaderData): string {
 
   const contactBits: string[] = [];
   if (h.phone) contactBits.push(`\\raisebox{-0.1\\height}\\faPhone\\ ${latexEsc(h.phone)}`);
-  if (h.email) contactBits.push(`\\href{mailto:${h.email}}{\\raisebox{-0.2\\height}\\faEnvelope\\  \\underline{${latexEsc(h.email)}}}`);
-  if (h.linkedin) contactBits.push(`\\href{https://${h.linkedin}}{\\raisebox{-0.2\\height}\\faLinkedin\\ \\underline{${latexEsc(h.linkedin)}}}`);
-  if (h.github) contactBits.push(`\\href{https://${h.github}}{\\raisebox{-0.2\\height}\\faGithub\\ \\underline{${latexEsc(h.github)}}}`);
-  if (h.website) contactBits.push(`\\href{https://${h.website}}{\\raisebox{-0.2\\height}\\faGlobe\\ \\underline{${latexEsc(h.website)}}}`);
+  if (h.email) contactBits.push(`\\href{mailto:${latexUrlEsc(h.email)}}{\\raisebox{-0.2\\height}\\faEnvelope\\  \\underline{${latexEsc(h.email)}}}`);
+  if (h.linkedin) contactBits.push(`\\href{https://${latexUrlEsc(h.linkedin)}}{\\raisebox{-0.2\\height}\\faLinkedin\\ \\underline{${latexEsc(h.linkedin)}}}`);
+  if (h.github) contactBits.push(`\\href{https://${latexUrlEsc(h.github)}}{\\raisebox{-0.2\\height}\\faGithub\\ \\underline{${latexEsc(h.github)}}}`);
+  if (h.website) contactBits.push(`\\href{https://${latexUrlEsc(h.website)}}{\\raisebox{-0.2\\height}\\faGlobe\\ \\underline{${latexEsc(h.website)}}}`);
   if (contactBits.length) {
     lines.push('    \\small ' + contactBits.join(' ~ '));
   }
@@ -435,7 +444,8 @@ function txtCenter(s: string): string {
   const pad = Math.max(0, Math.floor((TXT_W - s.length) / 2));
   return ' '.repeat(pad) + s;
 }
-function txtRow(left: string, right: string): string {
+// Section data is free-form jsonb, so any field may be missing.
+function txtRow(left: string = '', right: string = ''): string {
   if (!right) return left;
   const gap = TXT_W - left.length - right.length;
   return gap > 1 ? left + ' '.repeat(gap) + right : `${left}  ${right}`;
@@ -459,32 +469,32 @@ export function renderText(comp: Composition): string {
       case 'education':
         for (const it of (s.data as EducationData).items || []) {
           out.push(txtRow(it.school, it.dateRange));
-          out.push(txtRow('  ' + it.degree, it.location));
+          out.push(txtRow('  ' + (it.degree ?? ''), it.location));
         }
         break;
       case 'experience':
         for (const it of (s.data as ExperienceData).items || []) {
           out.push(txtRow(it.company, it.dateRange));
-          out.push(txtRow('  ' + it.title, it.location));
+          out.push(txtRow('  ' + (it.title ?? ''), it.location));
           for (const b of nonEmpty(it.bullets)) out.push('  • ' + b);
         }
         break;
       case 'leadership':
         for (const it of (s.data as LeadershipData).items || []) {
           out.push(txtRow(it.organization, it.dateRange));
-          out.push(txtRow('  ' + it.role, it.location));
+          out.push(txtRow('  ' + (it.role ?? ''), it.location));
           for (const b of nonEmpty(it.bullets)) out.push('  • ' + b);
         }
         break;
       case 'projects':
         for (const it of (s.data as ProjectsData).items || []) {
-          out.push(txtRow(it.name + (it.tech ? ` | ${it.tech}` : ''), it.date));
+          out.push(txtRow((it.name ?? '') + (it.tech ? ` | ${it.tech}` : ''), it.date));
           for (const b of nonEmpty(it.bullets)) out.push('  • ' + b);
         }
         break;
       case 'skills':
         for (const c of (s.data as SkillsData).categories || []) {
-          if (c.category || c.items) out.push(`${c.category}: ${c.items}`);
+          if (c.category || c.items) out.push(`${c.category ?? ''}: ${c.items ?? ''}`);
         }
         break;
       case 'coursework':

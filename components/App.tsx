@@ -685,10 +685,10 @@ const Dashboard = ({ data, setView, openModal, submitting, onOpenResume }: any) 
           <div style={{ position: 'relative' }}>
             <div className="ff-mono ff-label" style={{ color: 'var(--accent)', marginBottom: 10 }}>
               <Sparkles size={11} style={{ display: 'inline', verticalAlign: -1, marginRight: 6 }} />
-              What's working
+              What&apos;s working
             </div>
             <div className="ff-display" style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-              <span className="ff-italic">"{best.name}"</span> is your highest-performing resume.
+              <span className="ff-italic">&quot;{best.name}&quot;</span> is your highest-performing resume.
             </div>
             <div style={{ color: 'var(--ink-2)', marginTop: 12, fontSize: 15, lineHeight: 1.6 }}>
               {best.applied} applications sent, {best.callbacks} callback{best.callbacks === 1 ? '' : 's'} — a{' '}

@@ -86,9 +86,9 @@ export default function PrivacyPage() {
         <h2>Third-party services</h2>
         <p>FinalFinal relies on the following infrastructure providers. Each has its own privacy policy:</p>
         <ul>
-          <li><strong>Supabase</strong> — database and authentication. Your data is stored in Supabase's hosted Postgres. <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer">supabase.com/privacy</a></li>
+          <li><strong>Supabase</strong> — database and authentication. Your data is stored in Supabase&apos;s hosted Postgres. <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer">supabase.com/privacy</a></li>
           <li><strong>Google OAuth</strong> — sign-in only. We receive your name, email, and profile photo; we do not access your Google Drive, Gmail, or any other Google service. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">policies.google.com/privacy</a></li>
-          <li><strong>Vercel</strong> — hosting and deployment. Request logs may be retained per Vercel's standard policy. <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">vercel.com/legal/privacy-policy</a></li>
+          <li><strong>Vercel</strong> — hosting and deployment. Request logs may be retained per Vercel&apos;s standard policy. <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">vercel.com/legal/privacy-policy</a></li>
         </ul>
 
         <h2>Data storage and security</h2>
@@ -122,7 +122,7 @@ export default function PrivacyPage() {
 
         <h2>Changes to this policy</h2>
         <p>
-          If we make material changes to this policy, we will update the "last updated" date above.
+          If we make material changes to this policy, we will update the &quot;last updated&quot; date above.
           Continued use of the app after changes constitutes acceptance of the revised policy.
         </p>
 
